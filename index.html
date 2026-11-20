@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenSC4 Range</title>
+    <meta name="description" content="Open-source launch monitor dashboard and golf simulator for the Swing Caddie SC4 Pro (unofficial)." />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">⛳ OpenSC4 <span>Range</span></div>
+      <div class="controls">
+        <label>Device
+          <select id="device-select"></select>
+        </label>
+        <button id="connect-btn" class="primary">Connect</button>
+        <span id="status" class="status status-disconnected">Disconnected</span>
+        <label>Club
+          <select id="club-select"></select>
+        </label>
+        <button id="hit-btn" title="Simulator: hit a shot (Space)">Hit ▶</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="range-wrap">
+        <div id="range" class="range"></div>
+        <div class="range-toolbar">
+          <select id="camera-select" aria-label="Camera">
+            <option value="behind">Behind golfer</option>
+            <option value="follow">Follow ball</option>
+            <option value="top">Top-down</option>
+          </select>
+          <button id="clear-tracers">Clear tracers</button>
+        </div>
+      </section>
+
+      <aside class="shot-panel">
+        <h2>Last shot <small id="last-club"></small></h2>
+        <div id="tiles" class="tiles"></div>
+      </aside>
+
+      <section class="tabs">
+        <nav class="tab-bar" role="tablist">
+          <button data-tab="history" class="active">History</button>
+          <button data-tab="stats">Club stats</button>
+          <button data-tab="manual">Manual entry</button>
+          <button data-tab="device">Device / protocol</button>
+          <button data-tab="settings">Conditions</button>
+        </nav>
+
+        <div class="tab-panel active" data-panel="history">
+          <div class="row">
+            <button id="export-csv">Export CSV</button>
+            <label class="file-btn">Import CSV<input id="import-csv" type="file" accept=".csv,text/csv" hidden /></label>
+            <button id="clear-history" class="danger">Clear history</button>
+          </div>
+          <div class="table-scroll"><table id="history-table"></table></div>
+        </div>
+
+        <div class="tab-panel" data-panel="stats">
+          <div class="table-scroll"><table id="stats-table"></table></div>
+        </div>
+
+        <div class="tab-panel" data-panel="manual">
+          <p class="hint">Type numbers from the SC4 Pro display or app. Only ball speed is required – anything blank is estimated for the selected club.</p>
+          <form id="manual-form" class="form-grid">
+            <label>Ball speed (mph)*<input name="ballSpeedMph" type="number" step="0.1" required /></label>
+            <label>Club speed (mph)<input name="clubSpeedMph" type="number" step="0.1" /></label>
+            <label>Launch angle (°)<input name="launchAngleDeg" type="number" step="0.1" /></label>
+            <label>Launch direction (°, + right)<input name="launchDirectionDeg" type="number" step="0.1" /></label>
+            <label>Spin (rpm)<input name="spinRpm" type="number" step="1" /></label>
+            <label>Spin axis (°, + right)<input name="spinAxisDeg" type="number" step="0.1" /></label>
+            <label>Device carry (yd)<input name="deviceCarryYd" type="number" step="0.1" /></label>
+            <label>Device total (yd)<input name="deviceTotalYd" type="number" step="0.1" /></label>
+            <button type="submit" class="primary">Add shot</button>
+          </form>
+        </div>
+
+        <div class="tab-panel" data-panel="device">
+          <p class="hint">
+            The SC4 Pro's Bluetooth protocol isn't published. The Bluetooth adapter connects using the profile below,
+            subscribes to every notifying characteristic, and logs raw packets. Once the byte layout is known, fill in
+            <code>fields</code> and shots will decode automatically. See <code>docs/PROTOCOL.md</code>.
+          </p>
+          <div class="device-grid">
+            <div>
+              <label class="check"><input id="accept-all" type="checkbox" /> Show all nearby Bluetooth devices</label>
+              <textarea id="profile-json" spellcheck="false" rows="16"></textarea>
+              <div class="row">
+                <button id="profile-save">Apply profile</button>
+                <button id="profile-reset">Reset to SC4 Pro default</button>
+                <span id="profile-msg" class="hint"></span>
+              </div>
+            </div>
+            <div>
+              <div class="row">
+                <strong>Packet log</strong>
+                <button id="log-export">Download capture (JSON)</button>
+                <button id="log-clear">Clear</button>
+              </div>
+              <pre id="log" class="log"></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-panel="settings">
+          <form id="env-form" class="form-grid">
+            <label>Altitude (ft)<input name="altitudeFt" type="number" step="100" value="0" /></label>
+            <label>Temperature (°F)<input name="tempF" type="number" step="1" value="70" /></label>
+            <label>Wind speed (mph)<input name="windMph" type="number" step="1" value="0" /></label>
+            <label>Wind direction
+              <select name="windDir">
+                <option value="0">Tailwind</option>
+                <option value="180">Headwind</option>
+                <option value="90">Left → right</option>
+                <option value="270">Right → left</option>
+              </select>
+            </label>
+            <label>Fairway firmness <input name="firmness" type="range" min="0" max="1" step="0.1" value="0.5" /></label>
+          </form>
+          <p class="hint" id="env-summary"></p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
