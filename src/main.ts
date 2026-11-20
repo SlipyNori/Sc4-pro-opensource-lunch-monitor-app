@@ -190,20 +190,50 @@ $<HTMLInputElement>('#import-csv').addEventListener('change', async (e) => {
     saveShots(shots);
     renderHistory();
     renderStats();
-    alert(`Imported ${rows.length} shots`);
+    historyMsg(`Imported ${rows.length} shots`);
   } catch (err) {
-    alert(`Import failed: ${(err as Error).message}`);
+    historyMsg(`Import failed: ${(err as Error).message}`);
   }
   input.value = '';
 });
-$('#clear-history').addEventListener('click', () => {
-  if (!confirm('Delete all saved shots from this browser?')) return;
+// Two-step confirm in the page itself (no browser dialogs, which some embeds block)
+const clearBtn = $<HTMLButtonElement>('#clear-history');
+let clearTimer: ReturnType<typeof setTimeout> | undefined;
+clearBtn.addEventListener('click', () => {
+  if (!clearBtn.classList.contains('armed')) {
+    clearBtn.classList.add('armed');
+    clearBtn.textContent = `Delete ${shots.length} shots?`;
+    clearTimer = setTimeout(disarmClear, 4000);
+    return;
+  }
+  disarmClear();
   shots = [];
   saveShots(shots);
   renderHistory();
   renderStats();
   renderTiles();
+  historyMsg('History cleared');
 });
+function disarmClear() {
+  clearTimeout(clearTimer);
+  clearBtn.classList.remove('armed');
+  clearBtn.textContent = 'Clear history';
+}
+$('#copy-csv').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(shotsToCsv(shots));
+    historyMsg(`Copied ${shots.length} shots as CSV`);
+  } catch {
+    historyMsg('Copy was blocked by the browser – use Export CSV instead');
+  }
+});
+let msgTimer: ReturnType<typeof setTimeout> | undefined;
+function historyMsg(text: string) {
+  const el = $('#history-msg');
+  el.textContent = text;
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => (el.textContent = ''), 5000);
+}
 
 // ---------- Manual entry ----------
 $<HTMLFormElement>('#manual-form').addEventListener('submit', (e) => {
