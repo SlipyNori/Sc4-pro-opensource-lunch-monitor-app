@@ -139,7 +139,7 @@ export async function overpass(query: string, onTry?: (host: string) => void): P
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
-      }, 30000);
+      }, 40000);
       if (!res.ok) throw new Error(res.status === 429 ? 'busy (429)' : `error ${res.status}`);
       return (await res.json()) as OverpassResponse;
     } catch (e) {
@@ -167,20 +167,35 @@ out tags center bb;`;
     .sort((a, b) => Math.hypot(a.center.lat - lat, a.center.lon - lon) - Math.hypot(b.center.lat - lat, b.center.lon - lon));
 }
 
-/** Download and parse every golf feature inside a course's bounding box */
-export async function loadCourse(summary: CourseSummary, onTry?: (host: string) => void): Promise<Course> {
+/**
+ * Download a course in two small steps: first just the holes (enough to play),
+ * then greens, tees, fairways, bunkers and water. If the second step fails the
+ * holes are still playable (everything off the hole line counts as rough).
+ */
+export async function loadCourse(
+  summary: CourseSummary,
+  onTry?: (host: string) => void,
+  onNote?: (note: string) => void,
+): Promise<Course> {
   const pad = 0.0015; // ~150 m
   const b = summary.bounds;
   const bbox = `${b.minlat - pad},${b.minlon - pad},${b.maxlat + pad},${b.maxlon + pad}`;
-  const q = `[out:json][timeout:60];
-(way["golf"](${bbox});
- relation["golf"](${bbox});
+  const holes = await overpass(`[out:json][timeout:25];way["golf"="hole"](${bbox});out geom;`, onTry);
+  if (!holes.elements.length) return parseCourse(holes, summary.name, summary.id, summary.center);
+  try {
+    const features = await overpass(
+      `[out:json][timeout:25];
+(way["golf"~"^(green|tee|fairway|bunker|water_hazard|lateral_water_hazard)$"](${bbox});
  node["golf"="pin"](${bbox});
- way["natural"="water"](${bbox});
- relation["natural"="water"](${bbox}););
-out geom;`;
-  const data = await overpass(q, onTry);
-  return parseCourse(data, summary.name, summary.id, summary.center);
+ way["natural"="water"](${bbox}););
+out geom;`,
+      onTry,
+    );
+    return parseCourse({ elements: [...holes.elements, ...features.elements] }, summary.name, summary.id, summary.center);
+  } catch (e) {
+    onNote?.(`Greens, bunkers and water couldn't be downloaded (${(e as Error).message}), so the holes are played without them.`);
+    return parseCourse(holes, summary.name, summary.id, summary.center);
+  }
 }
 
 // ---------------- Parsing (pure, unit tested) ----------------

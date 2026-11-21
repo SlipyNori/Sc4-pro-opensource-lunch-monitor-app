@@ -47,8 +47,15 @@ export class BluetoothDevice extends BaseAdapter {
       });
       this.emit('log', `Selected "${device.name ?? 'unnamed'}" (${device.id})`);
       const server = await device.gatt!.connect();
-      await this.subscribeAll(server);
-      this.emit('status', 'connected', device.name ?? 'Connected');
+      const channels = await this.subscribeAll(server);
+      if (channels === 0) {
+        this.emit('log', '⚠ Connected, but no data channels could be opened, so no shot data can arrive.');
+        this.emit('log', '  On Windows this usually means the device has to be paired with Windows first:');
+        this.emit('log', '  Settings → Bluetooth & devices → Add device → Bluetooth → pick the SC4PRO, then reconnect here.');
+        this.emit('status', 'connected', `${device.name ?? 'Device'} · no data channels (see Device tab)`);
+      } else {
+        this.emit('status', 'connected', `${device.name ?? 'Connected'} · listening on ${channels} channel${channels > 1 ? 's' : ''}`);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emit('status', 'error', msg);
@@ -56,12 +63,17 @@ export class BluetoothDevice extends BaseAdapter {
     }
   }
 
-  private async subscribeAll(server: BluetoothRemoteGATTServer) {
+  /** Subscribe to every notifying characteristic. Returns how many data channels were opened. */
+  private async subscribeAll(server: BluetoothRemoteGATTServer): Promise<number> {
     let primary: BluetoothRemoteGATTService[] = [];
-    try {
-      primary = await server.getPrimaryServices();
-    } catch (e) {
-      this.emit('log', `Could not list services: ${(e as Error).message}`);
+    // Windows sometimes returns nothing on the first try right after connecting, so retry
+    for (let attempt = 1; attempt <= 3 && !primary.length; attempt++) {
+      try {
+        primary = await server.getPrimaryServices();
+      } catch (e) {
+        this.emit('log', `Could not list services (try ${attempt}/3): ${(e as Error).message}`);
+      }
+      if (!primary.length && attempt < 3) await sleep(1000 * attempt);
     }
     if (!primary.length) {
       this.emit('log', 'No accessible services. Add the device\'s service UUIDs to the profile (find them with a BLE scanner app such as nRF Connect).');
@@ -73,12 +85,15 @@ export class BluetoothDevice extends BaseAdapter {
     for (const svc of primary) {
       this.emit('log', `Service ${svc.uuid}`);
       let chars: BluetoothRemoteGATTCharacteristic[] = [];
-      try {
-        chars = await svc.getCharacteristics();
-      } catch (e) {
-        this.emit('log', `  (cannot read characteristics: ${(e as Error).message})`);
-        continue;
+      for (let attempt = 1; attempt <= 3 && !chars.length; attempt++) {
+        try {
+          chars = await svc.getCharacteristics();
+        } catch (e) {
+          this.emit('log', `  (cannot read characteristics, try ${attempt}/3: ${(e as Error).message})`);
+        }
+        if (!chars.length && attempt < 3) await sleep(1000 * attempt);
       }
+      if (!chars.length) this.emit('log', '  (no characteristics visible in this service)');
       for (const ch of chars) {
         const p = ch.properties;
         const props = [p.read && 'read', p.write && 'write', p.writeWithoutResponse && 'writeNR', p.notify && 'notify', p.indicate && 'indicate']
@@ -104,6 +119,7 @@ export class BluetoothDevice extends BaseAdapter {
         }
       }
     }
+    return this.chars.length;
   }
 
   private onPacket(charUuid: string, value: DataView, shotChar: string | null) {
@@ -155,3 +171,5 @@ function printable(v: DataView): string {
   }
   return s;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

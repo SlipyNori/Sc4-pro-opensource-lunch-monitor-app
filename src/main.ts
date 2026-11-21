@@ -692,12 +692,13 @@ $('#practice-course').addEventListener('click', () => {
 async function startCourse(summary: CourseSummary) {
   courseStatus(`Loading ${summary.name}…`);
   try {
-    const course = await loadCourse(summary, (host) => courseStatus(`Loading ${summary.name} (asking ${host})…`));
+    let note = '';
+    const course = await loadCourse(summary, (host) => courseStatus(`Loading ${summary.name} (asking ${host})…`), (n) => (note = n));
     if (!course.holes.length) {
       return courseStatus(`${summary.name} is on the map, but its holes haven't been mapped in OpenStreetMap yet. Try another course, or play the practice course.`);
     }
     beginRound(course);
-    courseStatus(`${course.name}: ${course.holes.length} holes loaded.`);
+    courseStatus(`${course.name}: ${course.holes.length} holes loaded.${note ? ' ' + note : ''}`);
     $('#course-results').innerHTML = '';
   } catch (err) {
     courseStatus(`Couldn't load the course: ${(err as Error).message}`);
