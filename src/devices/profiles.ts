@@ -1,25 +1,27 @@
 import type { DeviceProfile } from './frameDecoder';
 
 /**
- * Starter profile for the Swing Caddie SC4 Pro.
+ * Profile for the Swing Caddie SC4 Pro.
  *
- * ⚠️ The byte layout below is intentionally EMPTY: the SC4 Pro protocol has not
- * been published, and we don't want to ship guesses that silently produce wrong
- * numbers. Until someone captures and verifies it (see docs/PROTOCOL.md), this
- * profile runs in "capture mode": it connects, subscribes to every notifying
- * characteristic it can see, and logs raw packets so they can be analysed.
+ * Confirmed from a real unit (advertised name "SC4PRO 0514"):
+ *   - Advertised name starts with "SC4PRO"
+ *   - Vendor GATT service 50340001-2065-6964-6461-63676e697773
+ *     (the trailing bytes are "swingcaddie" in reverse ASCII)
+ *   - Standard Device Information (0x180A) and Battery (0x180F) services
+ *   - The unit only advertises after the official app wakes its Bluetooth;
+ *     disconnect the phone and it stays discoverable for a while.
  *
- * The name prefixes and service list are also best-effort; edit them in the
- * app's "Device profile" panel to match what a BLE scanner shows for your unit.
+ * ⚠️ The shot frame layout (`fields`) is still EMPTY: it hasn't been captured
+ * and verified yet. Until it is, this profile runs in "capture mode": it
+ * connects, subscribes to every notifying characteristic and logs raw packets.
+ * See docs/PROTOCOL.md.
  */
 export const SC4_PRO_PROFILE: DeviceProfile = {
-  name: 'Swing Caddie SC4 Pro (capture mode – protocol unverified)',
-  notes: 'Fill in services/fields once captured. See docs/PROTOCOL.md.',
-  namePrefixes: ['SC4', 'SC-4', 'Swing Caddie', 'SwingCaddie', 'VoiceCaddie'],
+  name: 'Swing Caddie SC4 Pro (capture mode – shot format not yet decoded)',
+  notes: 'Service UUID confirmed. Characteristics and frame layout still to be captured. See docs/PROTOCOL.md.',
+  namePrefixes: ['SC4PRO', 'SC4'],
   services: [
-    // Commonly used vendor UART service on many BLE devices (Nordic UART). Harmless if absent.
-    '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
-    // Standard services, useful for identifying firmware/model during capture.
+    '50340001-2065-6964-6461-63676e697773',
     'device_information',
     'battery_service',
   ],

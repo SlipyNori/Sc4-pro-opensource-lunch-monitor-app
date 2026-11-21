@@ -4,6 +4,20 @@ The goal is a verified **device profile** (JSON) that tells the app how to turn 
 
 > Please only analyse a device you own, and don't publish anything that isn't needed for interoperability (no app binaries, keys, or account data).
 
+## What we know so far
+
+| Item | Value | Source |
+|---|---|---|
+| Advertised name | `SC4PRO <4 digits>` (e.g. `SC4PRO 0514`) | Chrome `bluetooth-internals` scan |
+| Vendor service | `50340001-2065-6964-6461-63676e697773` | same |
+| Standard services | `1800`, `1801`, `180A` (Device Info), `180F` (Battery) | same |
+| Characteristics in the vendor service | *not yet recorded* | |
+| Shot frame layout | *not yet decoded* | |
+
+**Waking the device:** the SC4 Pro doesn't advertise on its own. Open the Swing Caddie app so it connects, then turn the phone's Bluetooth **off in Settings**. The SC4 Pro then stays discoverable for a while, long enough to scan and connect from a computer.
+
+**No phone app needed for discovery:** in Chrome or Edge on a computer, open `chrome://bluetooth-internals` (or `edge://bluetooth-internals`), go to **Devices**, click **Start scan**, then **Inspect** the `SC4PRO` entry. It lists services, characteristics and their properties, and can subscribe to notifications.
+
 ## 1. Find the services and characteristics
 
 Web Bluetooth can only open GATT services that are listed **up front**, so we first need the UUIDs.
