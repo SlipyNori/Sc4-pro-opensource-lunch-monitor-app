@@ -39,7 +39,30 @@ for (const d of devices) {
     renderStatus(detail);
   });
   d.on('log', (line) => appendLog(line));
+  d.on('packet', () => {
+    if (d !== active) return;
+    packetCount++;
+    lastPacketAt = Date.now();
+    const el = $('#activity');
+    el.classList.add('live');
+    setTimeout(() => el.classList.remove('live'), 150);
+    renderActivity();
+  });
 }
+
+// ---------- Data activity indicator (shows the device is sending something) ----------
+let packetCount = 0;
+let lastPacketAt = 0;
+function renderActivity() {
+  const el = $('#activity');
+  el.hidden = active === sim || status !== 'connected';
+  if (el.hidden) return;
+  const ago = lastPacketAt ? Math.round((Date.now() - lastPacketAt) / 1000) : -1;
+  $('#activity-text').textContent = packetCount === 0
+    ? 'Waiting for data…'
+    : `${packetCount} packet${packetCount === 1 ? '' : 's'} · last ${ago < 1 ? 'just now' : `${ago}s ago`}`;
+}
+setInterval(renderActivity, 1000);
 
 function addShot(m: ShotMeasurement, source: string) {
   const { shot, flight } = processShot(m, club, source, env);
@@ -104,6 +127,8 @@ function renderStatus(detail?: string) {
   el.className = `status status-${status}`;
   $('#connect-btn').textContent = status === 'connected' ? 'Disconnect' : 'Connect';
   hitBtn.style.display = active === sim ? '' : 'none';
+  if (status === 'connecting') packetCount = 0, lastPacketAt = 0;
+  renderActivity();
 }
 
 // ---------- Range toolbar ----------

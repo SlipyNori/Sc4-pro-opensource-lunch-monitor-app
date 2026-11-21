@@ -111,6 +111,7 @@ export class BluetoothDevice extends BaseAdapter {
     const hex = bytesToHex(bytes);
     this.capture.push({ t: Date.now(), char: charUuid, hex });
     this.emit('log', `◀ ${charUuid.slice(4, 8)} ${hex}`);
+    this.emit('packet', charUuid, hex);
     if (shotChar && charUuid !== shotChar) return;
     if (!Object.keys(this.profile.fields).length) return;
     const shot = decodeFrame(bytes, this.profile);

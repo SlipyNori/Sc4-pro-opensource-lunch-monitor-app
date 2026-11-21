@@ -6,6 +6,8 @@ export interface DeviceEvents {
   shot: (shot: ShotMeasurement) => void;
   status: (status: DeviceStatus, detail?: string) => void;
   log: (line: string) => void;
+  /** Raw data received from the device (for activity indicators / capture) */
+  packet: (source: string, hex: string) => void;
 }
 
 /**
