@@ -2,6 +2,9 @@ import {
   BallPresence,
   countBallPixels,
   DEFAULT_PIXEL_OPTIONS,
+  isBallPixel,
+  learnBall,
+  type LearnedBall,
   type BallEvent,
   type BallState,
   type PixelCount,
@@ -64,6 +67,7 @@ export class CameraTracker {
   private lane: LaneSample[] = [];
   private rest: { x: number; y: number; d: number } | null = null;
   private lastTrack: { x: number; y: number }[] = [];
+  private lastImg: ImageData | null = null;
   /** When true, analyse at 30 fps instead of 15 (putting needs it) */
   fast = false;
 
@@ -167,6 +171,7 @@ export class CameraTracker {
     if (this.video.readyState < 2) return;
     this.ctx.drawImage(this.video, 0, 0, W, H);
     const img = this.ctx.getImageData(0, 0, W, H);
+    this.lastImg = img;
     const now = frameT ?? performance.now();
     this.last = countBallPixels(img.data, W, H, this.settings.zone, this.settings.pixels);
     if (this.last.count >= this.settings.minPixels) {
@@ -214,6 +219,17 @@ export class CameraTracker {
     if (m) this.onPutt(m);
   }
 
+  /** Learn the ball's look (white or a colour) from the current frame. Applies it if found. */
+  learnBall(): LearnedBall | null {
+    if (!this.lastImg) return null;
+    const res = learnBall(this.lastImg.data, W, H, this.settings.zone, this.settings.pixels);
+    if (res) {
+      this.settings.pixels = res.pixels;
+      this.setMinPixels(Math.max(4, Math.round(res.count * 0.5)));
+    }
+    return res;
+  }
+
   /** Ball size in camera pixels while it sits in the box (for the readout) */
   get restDiameterPx() {
     return this.rest?.d;
@@ -241,13 +257,11 @@ export class CameraTracker {
       const x0 = Math.floor(x * W), y0 = Math.floor(y * H), x1 = Math.ceil((x + w) * W), y1 = Math.ceil((y + h) * H);
       g.fillStyle = 'rgba(79, 179, 255, 0.85)';
       const sx = cw / W, sy = ch / H;
-      const { brightness, maxSpread } = this.settings.pixels;
+      const opts = this.settings.pixels;
       for (let py = y0; py < y1; py++) {
         for (let px = x0; px < x1; px++) {
           const i = (py * W + px) * 4;
-          const r = img.data[i], gg = img.data[i + 1], b = img.data[i + 2];
-          const min = Math.min(r, gg, b);
-          if (min >= brightness && Math.max(r, gg, b) - min <= maxSpread) g.fillRect(px * sx, py * sy, sx, sy);
+          if (isBallPixel(img.data[i], img.data[i + 1], img.data[i + 2], opts)) g.fillRect(px * sx, py * sy, sx, sy);
         }
       }
     }

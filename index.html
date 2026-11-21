@@ -56,6 +56,11 @@
             <option value="follow">Follow ball</option>
             <option value="top">Top-down</option>
           </select>
+          <select id="quality-select" aria-label="Graphics quality" title="Graphics quality">
+            <option value="high">Graphics: High</option>
+            <option value="medium">Graphics: Medium</option>
+            <option value="low">Graphics: Low</option>
+          </select>
           <button id="clear-tracers">Clear tracers</button>
         </div>
       </section>
@@ -171,7 +176,12 @@
               <button id="cam-calibrate">Set up from ball in box</button>
               <p class="hint">Put a ball in the box, then click this to set the detection level automatically.</p>
               <label class="slider">Ball pixels needed <input id="cam-min" type="range" min="4" max="600" step="1" /></label>
-              <label class="slider">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <div class="ball-look">
+                <span id="ball-swatch" class="swatch" aria-hidden="true"></span>
+                <span><strong id="ball-kind">White ball</strong><br /><small class="hint">Set from the ball in the box. Works with white, yellow, orange, red or pink balls on most floors.</small></span>
+              </div>
+              <label class="slider" id="bright-row">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <label class="slider" id="tol-row" hidden>Colour match tolerance <input id="cam-tol" type="range" min="10" max="120" step="1" /></label>
               <fieldset class="putt-set">
                 <legend>Putting (camera looking down at the ball)</legend>
                 <label class="check"><input id="putt-on" type="checkbox" checked /> Measure putts with the camera when the putter (PT) is selected</label>

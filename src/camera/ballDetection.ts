@@ -16,13 +16,36 @@ export interface Zone {
 }
 
 export interface PixelOptions {
-  /** Minimum value of every RGB channel for a pixel to count as "ball white" (0–255) */
+  /** 'white': bright, unsaturated pixels. 'color': pixels close to a learned ball colour. */
+  mode: 'white' | 'color';
+  /** White mode: minimum value of every RGB channel (0–255) */
   brightness: number;
-  /** Maximum spread between RGB channels (keeps out coloured highlights) */
+  /** White mode: maximum spread between RGB channels (keeps out coloured highlights) */
   maxSpread: number;
+  /**
+   * Colour mode: the ball's colour as chromaticity (r/sum, g/sum, so it doesn't
+   * change with lighting) plus brightness, and a display colour for the UI.
+   */
+  color?: { r: number; g: number; lum: number; rgb: [number, number, number] };
+  /** Colour mode: how far (in chromaticity) a pixel may be from the ball colour */
+  tolerance: number;
 }
 
-export const DEFAULT_PIXEL_OPTIONS: PixelOptions = { brightness: 170, maxSpread: 55 };
+export const DEFAULT_PIXEL_OPTIONS: PixelOptions = { mode: 'white', brightness: 170, maxSpread: 55, tolerance: 0.04 };
+
+/** Is this pixel part of the ball? Shared by detection and the preview overlay. */
+export function isBallPixel(r: number, g: number, b: number, o: PixelOptions): boolean {
+  if (o.mode === 'color' && o.color) {
+    const sum = r + g + b;
+    if (sum < 60) return false; // too dark: colour is unreliable
+    const lum = sum / 3;
+    // Allow shadowed and highlighted sides of the ball, but not wildly different brightness
+    if (lum < o.color.lum * 0.45 || lum > o.color.lum * 1.8 + 20) return false;
+    return Math.hypot(r / sum - o.color.r, g / sum - o.color.g) <= o.tolerance;
+  }
+  const min = Math.min(r, g, b);
+  return min >= o.brightness && Math.max(r, g, b) - min <= o.maxSpread;
+}
 
 export interface PixelCount {
   count: number;
@@ -52,11 +75,7 @@ export function countBallPixels(
   for (let y = y0; y < y1; y++) {
     let i = (y * width + x0) * 4;
     for (let x = x0; x < x1; x++, i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const min = Math.min(r, g, b);
-      if (min >= opts.brightness && Math.max(r, g, b) - min <= opts.maxSpread) {
+      if (isBallPixel(data[i], data[i + 1], data[i + 2], opts)) {
         count++;
         sx += x;
         sy += y;
@@ -70,6 +89,80 @@ export function countBallPixels(
   return count
     ? { count, cx: sx / count / width, cy: sy / count / height, box: { x0: bx0, y0: by0, x1: bx1, y1: by1 } }
     : { count };
+}
+
+export interface LearnedBall {
+  pixels: PixelOptions;
+  /** Ball pixels found with the learned settings */
+  count: number;
+  /** Human-readable description, e.g. "Coloured ball" */
+  label: string;
+}
+
+/**
+ * Learn what the ball looks like from a frame with the ball sitting in the box.
+ * The floor colour comes from a ring just outside the box; the ball is whatever
+ * inside the box stands out most from it. White balls keep the white detector
+ * (robust on any floor); anything else switches to colour matching.
+ */
+export function learnBall(data: Uint8ClampedArray, width: number, height: number, zone: Zone, prev: PixelOptions): LearnedBall | null {
+  type Px = { r: number; g: number; lum: number; rgb: [number, number, number] };
+  const px = (i: number): Px => {
+    const R = data[i], G = data[i + 1], B = data[i + 2];
+    const sum = Math.max(1, R + G + B);
+    return { r: R / sum, g: G / sum, lum: sum / 3, rgb: [R, G, B] };
+  };
+  const zx0 = Math.floor(zone.x * width), zy0 = Math.floor(zone.y * height);
+  const zx1 = Math.ceil((zone.x + zone.w) * width), zy1 = Math.ceil((zone.y + zone.h) * height);
+  const padX = Math.max(4, Math.round((zx1 - zx0) * 0.4)), padY = Math.max(4, Math.round((zy1 - zy0) * 0.4));
+  const inside: Px[] = [];
+  const ring: Px[] = [];
+  for (let y = Math.max(0, zy0 - padY); y < Math.min(height, zy1 + padY); y++) {
+    for (let x = Math.max(0, zx0 - padX); x < Math.min(width, zx1 + padX); x++) {
+      const p = px((y * width + x) * 4);
+      if (x >= zx0 && x < zx1 && y >= zy0 && y < zy1) inside.push(p);
+      else ring.push(p);
+    }
+  }
+  if (inside.length < 20 || ring.length < 20) return null;
+  const median = (a: number[]) => {
+    const s = [...a].sort((p, q) => p - q);
+    return s[Math.floor(s.length / 2)];
+  };
+  const bg = { r: median(ring.map((p) => p.r)), g: median(ring.map((p) => p.g)), lum: median(ring.map((p) => p.lum)) };
+  const satOf = (p: { r: number; g: number }) => Math.hypot(p.r - 1 / 3, p.g - 1 / 3);
+  const medianBall = (c: Px[]) => ({
+    r: median(c.map((p) => p.r)),
+    g: median(c.map((p) => p.g)),
+    lum: median(c.map((p) => p.lum)),
+    rgb: [0, 1, 2].map((k) => median(c.map((p) => p.rgb[k]))) as [number, number, number],
+  });
+
+  // 1) Colour: pixels whose colour (not brightness) differs most from the floor.
+  //    Glare and shadows change brightness but barely change colour, so they're ignored.
+  const chroma = inside.map((p) => ({ p, s: Math.hypot(p.r - bg.r, p.g - bg.g) })).sort((a, b) => b.s - a.s);
+  const maxC = chroma[0].s;
+  if (maxC >= 0.05) {
+    const cand = chroma.filter((x) => x.s >= maxC * 0.5).map((x) => x.p);
+    const ball = medianBall(cand);
+    const sep = Math.hypot(ball.r - bg.r, ball.g - bg.g);
+    const whiteish = satOf(ball) < 0.035 && ball.lum > bg.lum + 25;
+    if (cand.length >= 4 && sep >= 0.025 && !whiteish) {
+      const pixels: PixelOptions = { ...prev, mode: 'color', color: ball, tolerance: Math.min(0.09, Math.max(0.02, sep * 0.5)) };
+      const count = countBallPixels(data, width, height, zone, pixels).count;
+      if (count >= 4) return { pixels, count, label: 'Coloured ball' };
+    }
+  }
+
+  // 2) White: bright, unsaturated pixels clearly brighter than the floor
+  const white = inside.filter((p) => satOf(p) < 0.04 && p.lum > bg.lum + 35);
+  if (white.length >= 4) {
+    const ball = medianBall(white);
+    const pixels: PixelOptions = { ...prev, mode: 'white', brightness: Math.round(Math.max(90, Math.min(240, (ball.lum + bg.lum) / 2 + 10))), maxSpread: 60 };
+    const count = countBallPixels(data, width, height, zone, pixels).count;
+    if (count >= 4) return { pixels, count, label: 'White ball' };
+  }
+  return null;
 }
 
 export type BallState = 'empty' | 'settling' | 'ready' | 'cooldown';

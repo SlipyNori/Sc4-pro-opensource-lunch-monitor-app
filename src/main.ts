@@ -1,4 +1,4 @@
-import { RangeScene, type CameraMode } from './render/RangeScene';
+import { RangeScene, type CameraMode, type Quality } from './render/RangeScene';
 import { SimulatedDevice } from './devices/SimulatedDevice';
 import { BluetoothDevice } from './devices/BluetoothDevice';
 import type { DeviceAdapter, DeviceStatus } from './devices/DeviceAdapter';
@@ -235,6 +235,13 @@ $<HTMLSelectElement>('#camera-select').addEventListener('change', (e) => {
   scene.setCameraMode((e.target as HTMLSelectElement).value as CameraMode);
 });
 $('#clear-tracers').addEventListener('click', () => scene.clearTracers());
+const qualitySelect = $<HTMLSelectElement>('#quality-select');
+qualitySelect.value = loadJson<Quality>('open-sc4.quality', 'high');
+scene.setQuality(qualitySelect.value as Quality);
+qualitySelect.addEventListener('change', () => {
+  scene.setQuality(qualitySelect.value as Quality);
+  saveJson('open-sc4.quality', qualitySelect.value);
+});
 
 // ---------- Shot tiles ----------
 function renderTiles(s?: Shot) {
@@ -378,7 +385,14 @@ $<HTMLFormElement>('#manual-form').addEventListener('submit', (e) => {
 
 // ---------- Camera (ball-set detection) ----------
 const CAMERA_KEY = 'open-sc4.camera.v1';
-const camSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS, ...loadJson<Partial<CameraSettings>>(CAMERA_KEY, {}) };
+const savedCam = loadJson<Partial<CameraSettings>>(CAMERA_KEY, {});
+const camSettings: CameraSettings = {
+  ...DEFAULT_CAMERA_SETTINGS,
+  ...savedCam,
+  // merge nested settings so older saved settings pick up new fields
+  pixels: { ...DEFAULT_CAMERA_SETTINGS.pixels, ...(savedCam.pixels ?? {}) },
+  putt: { ...DEFAULT_CAMERA_SETTINGS.putt, ...(savedCam.putt ?? {}) },
+};
 const camera = new CameraTracker(camSettings, $<HTMLCanvasElement>('#camera-canvas'));
 const camToggle = $<HTMLButtonElement>('#camera-toggle');
 const camSelect = $<HTMLSelectElement>('#webcam-select');
@@ -433,16 +447,33 @@ camBright.addEventListener('input', () => {
   camera.settings.pixels.brightness = Number(camBright.value);
   saveCam();
 });
+const camTol = $<HTMLInputElement>('#cam-tol');
+function renderBallLook() {
+  const p = camera.settings.pixels;
+  const colour = p.mode === 'color' && p.color;
+  $('#ball-kind').textContent = colour ? 'Coloured ball' : 'White ball';
+  $('#ball-swatch').style.background = colour ? `rgb(${p.color!.rgb.join(',')})` : '#f4f4f4';
+  $('#bright-row').hidden = !!colour;
+  $('#tol-row').hidden = !colour;
+  camTol.value = String(Math.round(p.tolerance * 1000));
+  camBright.value = String(p.brightness);
+}
+renderBallLook();
+camTol.addEventListener('input', () => {
+  camera.settings.pixels.tolerance = Number(camTol.value) / 1000;
+  saveCam();
+});
 $('#cam-calibrate').addEventListener('click', () => {
   if (!camera.running) return camMsg('Start the camera first.');
-  const n = camera.last.count;
-  if (n < 6) return camMsg('No ball seen in the box. Move the box over the ball, or lower the brightness threshold.');
-  const need = Math.max(4, Math.round(n * 0.5));
-  camera.setMinPixels(need);
-  camMin.value = String(need);
-  $('#cam-need').textContent = String(need);
+  const res = camera.learnBall();
+  if (!res) {
+    return camMsg('Couldn’t pick out a ball in the box. Draw the box a little bigger than the ball, check the ball is inside it, and that its colour differs from the floor.');
+  }
+  camMin.value = String(camera.settings.minPixels);
+  $('#cam-need').textContent = String(camera.settings.minPixels);
   saveCam();
-  camMsg(`Set: the ball shows as ${n} pixels, so ${need} or more counts as “ball in box”.`);
+  renderBallLook();
+  camMsg(`${res.label}: found ${res.count} ball pixels, so ${camera.settings.minPixels} or more counts as “ball in box”.`);
 });
 const camStateLabels = { empty: 'No ball in box', settling: 'Ball found – settling', ready: 'Ball set ✓', cooldown: 'Hit detected' };
 camera.onFrame = () => {
