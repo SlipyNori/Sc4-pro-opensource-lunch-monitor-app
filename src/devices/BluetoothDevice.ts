@@ -20,6 +20,7 @@ export class BluetoothDevice extends BaseAdapter {
   private chars: BluetoothRemoteGATTCharacteristic[] = [];
   /** Characteristics we can write commands to */
   private writable: BluetoothRemoteGATTCharacteristic[] = [];
+  private handlers = new Map<BluetoothRemoteGATTCharacteristic, (ev: Event) => void>();
   /** Captured packets (for export / protocol research) */
   readonly capture: { t: number; char: string; hex: string }[] = [];
 
@@ -36,6 +37,7 @@ export class BluetoothDevice extends BaseAdapter {
       throw new Error('Web Bluetooth is not available. Use Chrome or Edge on desktop/Android over HTTPS or localhost.');
     }
     this.emit('status', 'connecting');
+    this.resetChannels(); // never stack subscriptions from an earlier connection
     const services = this.profile.services.map(normaliseUuid);
     const options: RequestDeviceOptions = this.acceptAllDevices || !this.profile.namePrefixes.length
       ? { acceptAllDevices: true, optionalServices: services }
@@ -45,6 +47,7 @@ export class BluetoothDevice extends BaseAdapter {
       const device = await navigator.bluetooth.requestDevice(options);
       this.device = device;
       device.addEventListener('gattserverdisconnected', () => {
+        this.resetChannels();
         this.emit('status', 'disconnected', 'Device disconnected');
       });
       this.emit('log', `Selected "${device.name ?? 'unnamed'}" (${device.id})`);
@@ -111,10 +114,13 @@ export class BluetoothDevice extends BaseAdapter {
         if (p.notify || p.indicate) {
           try {
             await ch.startNotifications();
-            ch.addEventListener('characteristicvaluechanged', (ev) => {
+            if (this.chars.some((c) => c.uuid === ch.uuid)) continue; // already listening
+            const handler = (ev: Event) => {
               const value = (ev.target as BluetoothRemoteGATTCharacteristic).value!;
               this.onPacket(ch.uuid, value, shotChar);
-            });
+            };
+            ch.addEventListener('characteristicvaluechanged', handler);
+            this.handlers.set(ch, handler);
             this.chars.push(ch);
           } catch (e) {
             this.emit('log', `    (subscribe failed: ${(e as Error).message})`);
@@ -146,8 +152,7 @@ export class BluetoothDevice extends BaseAdapter {
     for (const ch of this.chars) {
       try { await ch.stopNotifications(); } catch { /* ignore */ }
     }
-    this.chars = [];
-    this.writable = [];
+    this.resetChannels();
     this.device?.gatt?.disconnect();
     this.device = null;
     this.emit('status', 'disconnected');
@@ -169,6 +174,13 @@ export class BluetoothDevice extends BaseAdapter {
     else await ch.writeValue(bytes);
     this.capture.push({ t: Date.now(), char: `▶${ch.uuid}`, hex: bytesToHex(bytes) });
     this.emit('log', `▶ ${ch.uuid.slice(4, 8)} ${bytesToHex(bytes)}  (sent)`);
+  }
+
+  private resetChannels() {
+    for (const ch of this.chars) ch.removeEventListener('characteristicvaluechanged', this.handlers.get(ch)!);
+    this.handlers.clear();
+    this.chars = [];
+    this.writable = [];
   }
 
   exportCapture(): string {
