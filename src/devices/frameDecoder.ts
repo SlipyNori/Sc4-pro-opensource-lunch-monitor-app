@@ -44,6 +44,25 @@ export interface DeviceProfile {
   shotCharacteristic?: string;
   match?: FrameMatcher;
   fields: Partial<Record<DecodableField, FieldSpec>>;
+  /**
+   * Optional status messages, for the "ready to hit" light. Fill these in once a
+   * capture shows which packets the device sends when it is armed / not armed.
+   */
+  status?: {
+    ready?: FrameMatcher;
+    notReady?: FrameMatcher;
+  };
+}
+
+export type DeviceReadiness = 'ready' | 'not-ready';
+
+/** Classify a packet as a ready / not-ready status message, if the profile describes them. */
+export function matchStatus(bytes: Uint8Array, profile: DeviceProfile): DeviceReadiness | null {
+  const st = profile.status;
+  if (!st) return null;
+  if (st.ready && (st.ready.prefix || st.ready.length !== undefined) && frameMatches(bytes, st.ready)) return 'ready';
+  if (st.notReady && (st.notReady.prefix || st.notReady.length !== undefined) && frameMatches(bytes, st.notReady)) return 'not-ready';
+  return null;
 }
 
 const SIZES: Record<FieldType, number> = {

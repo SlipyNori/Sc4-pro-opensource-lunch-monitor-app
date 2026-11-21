@@ -1,5 +1,5 @@
 import { BaseAdapter } from './DeviceAdapter';
-import { bytesToHex, decodeFrame, type DeviceProfile } from './frameDecoder';
+import { bytesToHex, decodeFrame, matchStatus, type DeviceProfile } from './frameDecoder';
 
 /**
  * Web Bluetooth launch-monitor adapter.
@@ -112,6 +112,11 @@ export class BluetoothDevice extends BaseAdapter {
     this.capture.push({ t: Date.now(), char: charUuid, hex });
     this.emit('log', `◀ ${charUuid.slice(4, 8)} ${hex}`);
     this.emit('packet', charUuid, hex);
+    const readiness = matchStatus(bytes, this.profile);
+    if (readiness) {
+      this.emit('readiness', readiness);
+      return;
+    }
     if (shotChar && charUuid !== shotChar) return;
     if (!Object.keys(this.profile.fields).length) return;
     const shot = decodeFrame(bytes, this.profile);

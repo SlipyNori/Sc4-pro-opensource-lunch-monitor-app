@@ -27,6 +27,13 @@
     <main class="layout">
       <section class="range-wrap">
         <div id="range" class="range"></div>
+        <div id="ready-lamp" class="ready-lamp" data-state="off" role="status" aria-live="polite">
+          <span class="lamp"></span>
+          <span class="lamp-text">
+            <strong id="ready-title">Not connected</strong>
+            <small id="ready-detail">Connect a device to start</small>
+          </span>
+        </div>
         <div class="range-toolbar">
           <select id="camera-select" aria-label="Camera">
             <option value="behind">Behind golfer</option>
@@ -47,6 +54,7 @@
           <button data-tab="history" class="active">History</button>
           <button data-tab="stats">Club stats</button>
           <button data-tab="manual">Manual entry</button>
+          <button data-tab="camera">Camera</button>
           <button data-tab="device">Device / protocol</button>
           <button data-tab="settings">Conditions</button>
         </nav>
@@ -79,6 +87,36 @@
             <label>Device total (yd)<input name="deviceTotalYd" type="number" step="0.1" /></label>
             <button type="submit" class="primary">Add shot</button>
           </form>
+        </div>
+
+        <div class="tab-panel" data-panel="camera">
+          <p class="hint">
+            Point a webcam at the hitting spot and drag a box around where the ball sits. The light turns green when a
+            ball is sitting still in the box and the radar is connected. When the ball suddenly leaves the box, that counts as a hit.
+            The webcam only checks setup; the numbers still come from the radar.
+          </p>
+          <div class="camera-grid">
+            <div class="camera-view">
+              <canvas id="camera-canvas" aria-label="Camera preview – drag to draw the ball box"></canvas>
+              <p class="hint">Drag on the picture to redraw the ball box. Blue dots show what the camera thinks is ball.</p>
+            </div>
+            <div class="camera-controls">
+              <div class="row">
+                <select id="webcam-select" aria-label="Webcam"><option value="">Default camera</option></select>
+                <button id="camera-toggle" class="primary">Start camera</button>
+              </div>
+              <div class="readout">
+                <div><span class="k">Ball</span> <strong id="cam-state">Camera off</strong></div>
+                <div><span class="k">Ball pixels</span> <strong id="cam-count">0</strong> <span class="k">need</span> <strong id="cam-need">25</strong></div>
+              </div>
+              <button id="cam-calibrate">Set up from ball in box</button>
+              <p class="hint">Put a ball in the box, then click this to set the detection level automatically.</p>
+              <label class="slider">Ball pixels needed <input id="cam-min" type="range" min="4" max="600" step="1" /></label>
+              <label class="slider">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <label class="check"><input id="cam-sim" type="checkbox" checked /> When using the Simulator, a camera-detected hit fires a simulated shot</label>
+              <span id="cam-msg" class="msg" role="status"></span>
+            </div>
+          </div>
         </div>
 
         <div class="tab-panel" data-panel="device">

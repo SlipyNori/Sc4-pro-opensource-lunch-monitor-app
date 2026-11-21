@@ -1,4 +1,5 @@
 import type { ShotMeasurement } from '../types';
+import type { DeviceReadiness } from './frameDecoder';
 
 export type DeviceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -8,6 +9,8 @@ export interface DeviceEvents {
   log: (line: string) => void;
   /** Raw data received from the device (for activity indicators / capture) */
   packet: (source: string, hex: string) => void;
+  /** The device reported that it is (or isn't) armed and ready to measure */
+  readiness: (state: DeviceReadiness) => void;
 }
 
 /**

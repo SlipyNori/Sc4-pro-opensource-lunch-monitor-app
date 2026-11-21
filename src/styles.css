@@ -122,3 +122,44 @@ th:first-child, td:first-child { text-align: left; }
 .activity { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .activity .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); transition: background 0.4s; }
 .activity.live .dot { background: var(--accent); transition: none; }
+
+/* ---------- Ready lamp: big enough to read from the hitting position ---------- */
+.ready-lamp {
+  position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 12px; border-radius: 999px; max-width: calc(100% - 20px);
+  background: rgba(10, 14, 12, 0.78); color: #fff; border: 2px solid var(--lamp-color);
+}
+.ready-lamp .lamp {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--lamp-color);
+  box-shadow: 0 0 18px 2px var(--lamp-glow);
+}
+.ready-lamp .lamp-text { display: flex; flex-direction: column; min-width: 0; }
+.ready-lamp strong { font-size: 20px; line-height: 1.1; letter-spacing: 0.02em; }
+.ready-lamp small { font-size: 12px; color: #d3dcd6; }
+.ready-lamp { --lamp-color: #6b7570; --lamp-glow: transparent; }
+.ready-lamp[data-state="waiting"] { --lamp-color: #f2b84b; --lamp-glow: rgba(242, 184, 75, 0.5); }
+.ready-lamp[data-state="not-ready"] { --lamp-color: #ea5a5a; --lamp-glow: rgba(234, 90, 90, 0.55); }
+.ready-lamp[data-state="ready"] { --lamp-color: #3ddc5c; --lamp-glow: rgba(61, 220, 92, 0.75); }
+.ready-lamp[data-state="shot"] { --lamp-color: #4fb3ff; --lamp-glow: rgba(79, 179, 255, 0.8); }
+.range-wrap:has(.ready-lamp[data-state="ready"]) .range { box-shadow: 0 0 0 4px #3ddc5c; }
+@media (prefers-reduced-motion: no-preference) {
+  .ready-lamp[data-state="ready"] .lamp { animation: lamp-pulse 1.6s ease-in-out infinite; }
+}
+@keyframes lamp-pulse { 50% { box-shadow: 0 0 30px 8px var(--lamp-glow); } }
+@media (max-width: 860px) {
+  .ready-lamp { top: auto; bottom: 10px; }
+  .ready-lamp .lamp { width: 26px; height: 26px; }
+  .ready-lamp strong { font-size: 16px; }
+}
+
+/* ---------- Camera tab ---------- */
+.camera-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+.camera-view canvas { width: 100%; aspect-ratio: 4 / 3; display: block; border-radius: 10px; border: 1px solid var(--border); background: var(--log-bg); cursor: crosshair; touch-action: none; }
+.camera-controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.camera-controls .hint { margin: 0; }
+.readout { display: grid; gap: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-variant-numeric: tabular-nums; }
+.readout .k { color: var(--muted); font-size: 12px; }
+.slider { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+@media (max-width: 860px) { .camera-grid { grid-template-columns: 1fr; } }
+.camera-controls .row { flex-wrap: nowrap; min-width: 0; margin-bottom: 0; }
+#webcam-select { flex: 1 1 auto; min-width: 0; width: 100%; text-overflow: ellipsis; }

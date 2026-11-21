@@ -50,6 +50,7 @@ export class SimulatedDevice extends BaseAdapter {
   async connect() {
     this.connected = true;
     this.emit('status', 'connected', 'Simulator');
+    this.emit('readiness', 'ready');
   }
 
   async disconnect() {

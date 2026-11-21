@@ -10,6 +10,7 @@ import { csvToMeasurements, shotsToCsv } from './session/csv';
 import { loadJson, loadShots, saveJson, saveShots } from './session/store';
 import { DEFAULT_ENVIRONMENT, simulateShot, type Environment } from './physics/ballFlight';
 import { CLUBS, type ClubId, type Shot, type ShotMeasurement } from './types';
+import { CameraTracker, DEFAULT_CAMERA_SETTINGS, type CameraSettings } from './camera/CameraTracker';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -39,6 +40,11 @@ for (const d of devices) {
     renderStatus(detail);
   });
   d.on('log', (line) => appendLog(line));
+  d.on('readiness', (state) => {
+    if (d !== active) return;
+    readiness = state;
+    renderLamp();
+  });
   d.on('packet', () => {
     if (d !== active) return;
     packetCount++;
@@ -48,6 +54,60 @@ for (const d of devices) {
     setTimeout(() => el.classList.remove('live'), 150);
     renderActivity();
   });
+}
+
+// ---------- Ready lamp ----------
+// States: off (not connected) → waiting (connected, no ready signal known/seen)
+//         → ready / not-ready (device status packets) ; "shot" flashes briefly after each shot.
+let readiness: 'ready' | 'not-ready' | null = null;
+let shotFlashUntil = 0;
+let flashTitle = 'Shot recorded';
+function renderLamp() {
+  const lamp = $('#ready-lamp');
+  let state: string;
+  let title: string;
+  let detail: string;
+  if (Date.now() < shotFlashUntil) {
+    state = 'shot'; title = flashTitle; detail = 'Get ready for the next one';
+  } else if (camera?.running) {
+    const radarOk = status === 'connected';
+    const cam = camera.state;
+    if (readiness === 'not-ready') {
+      state = 'not-ready'; title = 'Not ready'; detail = 'Radar is busy or not armed – wait';
+    } else if (cam === 'ready' && radarOk) {
+      state = 'ready'; title = 'Ready – hit away'; detail = `Ball set · ${active === sim ? 'Simulator' : 'radar connected'}`;
+    } else if (cam === 'ready') {
+      state = 'waiting'; title = 'Ball set'; detail = 'Connect the radar to start tracking';
+    } else if (cam === 'settling') {
+      state = 'waiting'; title = 'Hold still…'; detail = 'Ball found – checking it’s settled';
+    } else {
+      state = 'waiting'; title = 'Place ball in the box'; detail = radarOk ? 'Camera is watching the hitting spot' : 'Radar not connected yet';
+    }
+  } else if (status === 'connecting') {
+    state = 'waiting'; title = 'Connecting…'; detail = 'Pick the device in the browser window';
+  } else if (status !== 'connected') {
+    state = 'off'; title = 'Not connected'; detail = status === 'error' ? 'Connection failed – see Device tab' : 'Connect a device to start';
+  } else if (readiness === 'ready') {
+    state = 'ready'; title = 'Ready – hit away'; detail = active === sim ? 'Simulator: press Space or Hit' : 'Device is armed';
+  } else if (readiness === 'not-ready') {
+    state = 'not-ready'; title = 'Not ready'; detail = 'Device is busy or not armed – wait';
+  } else {
+    const hasReadySignal = !!profile.status?.ready?.prefix || profile.status?.ready?.length !== undefined;
+    state = 'waiting';
+    title = 'Connected';
+    detail = hasReadySignal
+      ? 'Waiting for the device to arm…'
+      : 'Ready signal not decoded yet – watch the device screen';
+  }
+  lamp.dataset.state = state;
+  $('#ready-title').textContent = title;
+  $('#ready-detail').textContent = detail;
+}
+function flashShot(title = 'Shot recorded') {
+  flashTitle = title;
+  shotFlashUntil = Date.now() + 1800;
+  renderLamp();
+  setTimeout(renderLamp, 1850);
 }
 
 // ---------- Data activity indicator (shows the device is sending something) ----------
@@ -69,6 +129,7 @@ function addShot(m: ShotMeasurement, source: string) {
   shots.push(shot);
   saveShots(shots);
   scene.playShot(flight);
+  flashShot();
   renderTiles(shot);
   renderHistory();
   renderStats();
@@ -127,8 +188,13 @@ function renderStatus(detail?: string) {
   el.className = `status status-${status}`;
   $('#connect-btn').textContent = status === 'connected' ? 'Disconnect' : 'Connect';
   hitBtn.style.display = active === sim ? '' : 'none';
-  if (status === 'connecting') packetCount = 0, lastPacketAt = 0;
+  if (status === 'connecting' || status === 'disconnected') {
+    packetCount = 0;
+    lastPacketAt = 0;
+    readiness = null;
+  }
   renderActivity();
+  renderLamp();
 }
 
 // ---------- Range toolbar ----------
@@ -274,6 +340,93 @@ $<HTMLFormElement>('#manual-form').addEventListener('submit', (e) => {
   addShot(m as unknown as ShotMeasurement, 'Manual');
   form.reset();
 });
+
+// ---------- Camera (ball-set detection) ----------
+const CAMERA_KEY = 'open-sc4.camera.v1';
+const camSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS, ...loadJson<Partial<CameraSettings>>(CAMERA_KEY, {}) };
+const camera = new CameraTracker(camSettings, $<HTMLCanvasElement>('#camera-canvas'));
+const camToggle = $<HTMLButtonElement>('#camera-toggle');
+const camSelect = $<HTMLSelectElement>('#webcam-select');
+const camMin = $<HTMLInputElement>('#cam-min');
+const camBright = $<HTMLInputElement>('#cam-bright');
+const saveCam = () => saveJson(CAMERA_KEY, camera.settings);
+const camMsg = (t: string) => ($('#cam-msg').textContent = t);
+camMin.value = String(camSettings.minPixels);
+camBright.value = String(camSettings.pixels.brightness);
+$('#cam-need').textContent = String(camSettings.minPixels);
+
+async function fillCameraList() {
+  const cams = await CameraTracker.listCameras();
+  camSelect.innerHTML = '<option value="">Default camera</option>' + cams
+    .map((c, i) => `<option value="${c.deviceId}" ${c.deviceId === camSettings.deviceId ? 'selected' : ''}>${c.label || `Camera ${i + 1}`}</option>`)
+    .join('');
+}
+camSelect.addEventListener('change', async () => {
+  camera.settings.deviceId = camSelect.value || undefined;
+  saveCam();
+  if (camera.running) await startCamera();
+});
+async function startCamera() {
+  try {
+    await camera.start();
+    camToggle.textContent = 'Stop camera';
+    camMsg('');
+    await fillCameraList(); // labels are only available after permission is granted
+  } catch (e) {
+    camMsg(`Camera didn’t start: ${(e as Error).message}. Allow camera access in the browser’s address bar and try again.`);
+  }
+  renderLamp();
+}
+camToggle.addEventListener('click', async () => {
+  if (camera.running) {
+    camera.stop();
+    camToggle.textContent = 'Start camera';
+    $('#cam-state').textContent = 'Camera off';
+    renderLamp();
+  } else {
+    await startCamera();
+  }
+});
+camMin.addEventListener('input', () => {
+  camera.setMinPixels(Number(camMin.value));
+  $('#cam-need').textContent = camMin.value;
+  saveCam();
+});
+camBright.addEventListener('input', () => {
+  camera.settings.pixels.brightness = Number(camBright.value);
+  saveCam();
+});
+$('#cam-calibrate').addEventListener('click', () => {
+  if (!camera.running) return camMsg('Start the camera first.');
+  const n = camera.last.count;
+  if (n < 6) return camMsg('No ball seen in the box. Move the box over the ball, or lower the brightness threshold.');
+  const need = Math.max(4, Math.round(n * 0.5));
+  camera.setMinPixels(need);
+  camMin.value = String(need);
+  $('#cam-need').textContent = String(need);
+  saveCam();
+  camMsg(`Set: the ball shows as ${n} pixels, so ${need} or more counts as “ball in box”.`);
+});
+const camStateLabels = { empty: 'No ball in box', settling: 'Ball found – settling', ready: 'Ball set ✓', cooldown: 'Hit detected' };
+camera.onFrame = () => {
+  $('#cam-count').textContent = String(camera.last.count);
+  $('#cam-state').textContent = camStateLabels[camera.state];
+};
+camera.onEvent = (ev) => {
+  if (ev === 'hit') {
+    appendLog('📷 Camera: ball left the box – hit detected');
+    flashShot('Swing detected');
+    if (active === sim && status === 'connected' && $<HTMLInputElement>('#cam-sim').checked) sim.hit();
+  } else if (ev === 'removed') {
+    appendLog('📷 Camera: ball removed from the box');
+  } else if (ev === 'ready') {
+    appendLog('📷 Camera: ball set');
+  }
+  renderLamp();
+};
+camera.enableZoneDrawing(() => saveCam());
+camera.draw();
+fillCameraList();
 
 // ---------- Device / protocol tab ----------
 const profileJson = $<HTMLTextAreaElement>('#profile-json');

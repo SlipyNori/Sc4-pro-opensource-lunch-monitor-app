@@ -11,6 +11,7 @@ An **open-source launch monitor dashboard and golf simulator** for the Swing Cad
 - **Shot dashboard** with carry, total, offline, ball/club speed, smash, launch, direction, spin, spin axis, apex and landing angle. Values the device didn't report are estimated per club and marked *(est.)*.
 - **History and per-club stats**, including averages and consistency (carry/offline standard deviation). Shots are saved in your browser.
 - **CSV export/import.** Import understands common column names (`Ball Speed`, `Launch Angle`, `Back Spin`, …).
+- **Ready light + webcam ball detection**: a big status light on the range, readable from the hitting position. Point any webcam at the hitting spot and draw a box around the ball. The light turns green when a ball is sitting still in the box and the radar is connected, and a hit is detected when the ball leaves. Radar can't see a ball at rest, so the camera handles setup while the radar handles the numbers.
 - **Device layer** with three inputs:
   - **Simulator**, so you can use everything with no hardware (press **Space**).
   - **Manual entry** for numbers read off the SC4 Pro display or app.

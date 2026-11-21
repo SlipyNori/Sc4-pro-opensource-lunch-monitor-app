@@ -26,6 +26,9 @@ export const SC4_PRO_PROFILE: DeviceProfile = {
     'battery_service',
   ],
   fields: {},
+  // Ready / not-ready status packets: unknown until captured. Example shape:
+  // status: { ready: { prefix: "XX YY" }, notReady: { prefix: "XX ZZ" } }
+  status: {},
 };
 
 /** An example of a fully specified profile, used by tests and as documentation. */
