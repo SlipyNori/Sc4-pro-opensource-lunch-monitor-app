@@ -8,7 +8,7 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { FlightResult, TrajectoryPoint } from '../physics/ballFlight';
-import { flagstick, golfBall, grassTexture } from './assets';
+import { flagstick, golfBall, grassTexture, GOLF_BALL_RADIUS } from './assets';
 import { buildRangeScenery } from './scenery';
 import { GrassField } from './grass';
 import { updateTrees, type Forest } from './trees';
@@ -26,8 +26,10 @@ export interface EN {
 /** Course (east, height, north) → three.js (x = east, y = up, z = −north) */
 const enToThree = (e: number, y: number, n: number) => new THREE.Vector3(e, y, -n);
 
-/** Drawn ball radius. A real ball is 2.1 cm; this is enlarged so it reads on screen. */
-const BALL_R = 0.16;
+/** Real ball radius (42.67 mm diameter) */
+const BALL_R = GOLF_BALL_RADIUS;
+/** Top of the hitting mat on the range (the ball sits on it at the tee) */
+const MAT_TOP = 0.05;
 const TRACER_COLOR = 0xffc93c;
 
 interface Tracer {
@@ -119,7 +121,8 @@ export class RangeScene {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
-    sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 400;
+    // Tight around the ball so even a real-size ball casts a crisp shadow
+    sc.left = -22; sc.right = 22; sc.top = 22; sc.bottom = -22; sc.near = 1; sc.far = 400;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun, this.sun.target);
@@ -141,7 +144,8 @@ export class RangeScene {
     });
     this.rangeGrass.centreOn(0, -14);
     this.rangeGroup.add(this.rangeGrass);
-    this.courseGrass = new GrassField({ radius: 26, count: 50000, minHeight: 0.04, maxHeight: 0.11, base: 0x2f5a1f, tip: 0x93bf62 });
+    // Fairway-height grass (2–4.5 cm) so a real-size ball still sits visibly on top
+    this.courseGrass = new GrassField({ radius: 26, count: 50000, minHeight: 0.02, maxHeight: 0.045, base: 0x2f5a1f, tip: 0x93bf62 });
     this.courseGroup.add(this.courseGrass);
 
     // ---- Course mode ground ----
@@ -161,7 +165,7 @@ export class RangeScene {
 
     // ---- Ball ----
     this.ball = golfBall(BALL_R);
-    this.ball.position.set(0, BALL_R, 0);
+    this.ball.position.set(0, MAT_TOP + BALL_R, 0);
     this.scene.add(this.ball);
     // A soft glow so the ball stays visible far away in flight
     this.ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
@@ -224,7 +228,7 @@ export class RangeScene {
       this.origin = { e: 0, n: 0 };
       this.aim = { e: 0, n: 1 };
       this.target = null;
-      this.ball.position.set(0, BALL_R, 0);
+      this.ball.position.set(0, MAT_TOP + BALL_R, 0);
     }
     this.placeStaticCamera();
   }
@@ -268,7 +272,7 @@ export class RangeScene {
     this.origin = { ...p };
     this.aim = { ...aim };
     this.target = target ?? null;
-    this.ball.position.copy(enToThree(p.e, BALL_R, p.n));
+    this.ball.position.copy(enToThree(p.e, this.restY(p), p.n));
     const b = enToThree(p.e, 0, p.n);
     this.courseGrass.centreOn(b.x, b.z);
     if (!this.anim) this.placeStaticCamera();
@@ -310,6 +314,12 @@ export class RangeScene {
     }
   }
 
+  /** Height of the ball's centre at rest: on the mat at the range tee, else on the ground */
+  private restY(p: EN) {
+    const onMat = this.mode === 'range' && Math.abs(p.e) < 0.75 && Math.abs(p.n) < 0.75;
+    return BALL_R + (onMat ? MAT_TOP : 0);
+  }
+
   /** Shot frame (x downrange, z right) → three.js, using the current ball position and aim */
   private toThree(p: TrajectoryPoint) {
     const a = this.aim;
@@ -336,12 +346,14 @@ export class RangeScene {
     } else if (this.mode === 'course') {
       // A little above head height behind the ball: trees and grass give depth,
       // while the ground down the hole still reads clearly
-      this.camera.position.copy(ball).addScaledVector(fwd, -9).setY(3.4);
-      this.camera.lookAt(ball.clone().addScaledVector(fwd, 120).setY(1));
+      this.camera.position.copy(ball).addScaledVector(fwd, -2.6).setY(1.4);
+      this.camera.lookAt(ball.clone().addScaledVector(fwd, 32).setY(-4));
     } else {
       // Eye height, standing a few paces behind the ball
-      this.camera.position.copy(ball).addScaledVector(fwd, -5.5).setY(1.7);
-      this.camera.lookAt(ball.clone().addScaledVector(fwd, 150).setY(3));
+      // About 2 m behind the ball, like a golf simulator's tee camera
+      this.camera.position.copy(ball).addScaledVector(fwd, -2.2).setY(1.25);
+      // Tilted down so the real-size ball sits in the lower part of the view
+      this.camera.lookAt(ball.clone().addScaledVector(fwd, 30).setY(-4));
     }
   }
 
@@ -403,7 +415,7 @@ export class RangeScene {
   clearTracers() {
     for (const t of this.tracers) this.scene.remove(t.line, t.marker);
     this.tracers = [];
-    this.ball.position.copy(enToThree(this.origin.e, BALL_R, this.origin.n));
+    this.ball.position.copy(enToThree(this.origin.e, this.restY(this.origin), this.origin.n));
     this.placeStaticCamera();
   }
 
@@ -419,13 +431,13 @@ export class RangeScene {
       if (i === -1) i = pts.length;
       line.geometry.instanceCount = Math.max(0, i - 1);
       const p = this.toThree(pts[Math.min(i, pts.length - 1)]);
-      this.ball.position.set(p.x, p.y + BALL_R, p.z);
+      this.ball.position.set(p.x, p.y + this.restY(this.origin), p.z);
       this.ball.rotation.x -= 0.6; // backspin
       // Glow grows with distance so the ball never shrinks to nothing
       const d = this.camera.position.distanceTo(this.ball.position);
-      this.ballGlow.visible = d > 25;
+      this.ballGlow.visible = d > 10;
       this.ballGlow.position.copy(this.ball.position);
-      this.ballGlow.scale.setScalar(Math.min(6, d * 0.012));
+      this.ballGlow.scale.setScalar(Math.min(5, d * 0.011));
       if (this.cameraMode === 'follow') {
         const fwd = new THREE.Vector3(this.aim.e, 0, -this.aim.n).normalize();
         const want = p.clone().addScaledVector(fwd, -35).setY(p.y + 8);
@@ -455,7 +467,9 @@ export class RangeScene {
     if (this.quality === 'high' && this.cameraMode !== 'top') {
       // Focus on the ball; nearby ground and the far distance soften like a camera lens
       const u = this.bokeh.uniforms as Record<string, THREE.IUniform>;
-      const want = this.camera.position.distanceTo(focusPt);
+      // Never focus closer than 25 m: with a real-size ball a few metres away the
+      // whole range would otherwise blur
+      const want = Math.max(25, this.camera.position.distanceTo(focusPt));
       u.focus.value += (want - u.focus.value) * 0.15;
       // Gentler on a course: the satellite detail down the hole matters for aiming
       u.aperture.value = this.mode === 'course' ? 0.00003 : 0.00007;

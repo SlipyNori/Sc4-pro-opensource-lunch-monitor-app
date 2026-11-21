@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { ydToM } from '../physics/units';
-import { flagstick, grassTexture, yardageSign } from './assets';
+import { flagstick, grassTexture, yardageSign, GOLF_BALL_RADIUS } from './assets';
 import { Forest, seededRandom, type TreeSpot } from './trees';
 
 // ---------------- noise ----------------
@@ -152,7 +152,7 @@ export function buildRangeScenery(maxAniso: number): RangeScenery {
   const wood = new THREE.MeshStandardMaterial({ color: 0xa8855c, roughness: 0.8 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x2c3a33, roughness: 0.5, metalness: 0.6 });
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x8a8f86, roughness: 0.7, side: THREE.DoubleSide });
-  const bayW = 4.4;
+  const bayW = 5.2;
   const basketBalls: THREE.Vector3[] = [];
   const roof = new THREE.Mesh(new THREE.BoxGeometry(bayW * 15, 0.18, 9.5), roofMat);
   roof.position.set(0, 3.45, 5.4);
@@ -161,10 +161,13 @@ export function buildRangeScenery(maxAniso: number): RangeScenery {
   const fascia = new THREE.Mesh(new THREE.BoxGeometry(bayW * 15, 0.45, 0.12), new THREE.MeshStandardMaterial({ color: 0x1f4d2b, roughness: 0.6 }));
   fascia.position.set(0, 3.3, 0.65);
   bays.add(fascia);
-  const matMat = new THREE.MeshStandardMaterial({ color: 0x2f6e3a, roughness: 1 });
+  // Artificial-turf mat: fine grass texture, darker and more uniform than real grass
+  const turf = grass.clone();
+  turf.repeat.set(5, 5);
+  const matMat = new THREE.MeshStandardMaterial({ map: turf, color: 0xa3e0ad, roughness: 1 });
   const basketMat = new THREE.MeshStandardMaterial({ color: 0x1b4f9c, roughness: 0.6 });
   const ballMat = new THREE.MeshStandardMaterial({ color: 0xf6f6f0, roughness: 0.45 });
-  const ballGeo = new THREE.IcosahedronGeometry(0.021, 1);
+  const ballGeo = new THREE.IcosahedronGeometry(GOLF_BALL_RADIUS, 1);
   for (let b = -7; b <= 7; b++) {
     const x = b * bayW;
     // posts at each bay edge, along the front
@@ -231,13 +234,13 @@ export function buildRangeScenery(maxAniso: number): RangeScenery {
   // ---- Range balls scattered across the landing areas ----
   const rb = seededRandom(21);
   const N = 1600;
-  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.045, 0), new THREE.MeshStandardMaterial({ color: 0xf4f2e6, roughness: 0.5 }), N);
+  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(GOLF_BALL_RADIUS, 1), new THREE.MeshStandardMaterial({ color: 0xf4f2e6, roughness: 0.5 }), N);
   const m = new THREE.Matrix4();
   for (let i = 0; i < N; i++) {
     const d = 25 + Math.pow(rb(), 0.8) * 230; // metres downrange
     const spread = 4 + d * 0.16;
     const x = (rb() + rb() + rb() - 1.5) * spread;
-    m.makeTranslation(x, 0.045, -d);
+    m.makeTranslation(x, GOLF_BALL_RADIUS, -d);
     balls.setMatrixAt(i, m);
   }
   balls.instanceMatrix.needsUpdate = true;

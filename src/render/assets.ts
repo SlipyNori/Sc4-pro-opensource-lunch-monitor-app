@@ -3,6 +3,7 @@
  * (no image files), so the app stays a single self-contained page.
  */
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 function canvas(w: number, h: number) {
   const c = document.createElement('canvas');
@@ -55,69 +56,74 @@ export function grassTexture(maxAniso: number): THREE.CanvasTexture {
   return t;
 }
 
+/** Real golf ball diameter: 42.67 mm */
+export const GOLF_BALL_RADIUS = 0.042672 / 2;
+
 /**
- * Dimple normal map for the golf ball (equirectangular). Each pixel finds its
- * nearest dimple centre; inside a dimple the surface normal tilts toward the
- * centre like a shallow bowl.
+ * Dimple centres spread evenly over the sphere (Fibonacci spiral), as unit vectors.
+ * 352 dimples, close to a typical tour ball.
  */
-export function dimpleNormalMap(): THREE.CanvasTexture {
-  const W = 512, H = 256, rows = 20;
-  const { c, g } = canvas(W, H);
-  const img = g.createImageData(W, H);
-  const rowCols = Array.from({ length: rows }, (_, row) => {
-    const lat = ((row + 0.5) / rows - 0.5) * Math.PI;
-    return Math.max(3, Math.round(40 * Math.cos(lat)));
-  });
-  const rad = 0.42; // dimple radius as a fraction of row spacing
-  for (let y = 0; y < H; y++) {
-    const vRow = (y / H) * rows - 0.5;
-    const lat = (y / H - 0.5) * Math.PI;
-    const cosLat = Math.max(0.05, Math.cos(lat));
-    for (let x = 0; x < W; x++) {
-      let best = Infinity, bdx = 0, bdy = 0;
-      for (let row = Math.max(0, Math.floor(vRow)); row <= Math.min(rows - 1, Math.ceil(vRow)); row++) {
-        const cols = rowCols[row];
-        const u = (x / W) * cols - (row % 2) * 0.5;
-        for (const col of [Math.floor(u), Math.ceil(u)]) {
-          // distances in "row spacing" units on the sphere surface
-          const dx = (u - col) * (rows / cols) * cosLat * 2;
-          const dy = vRow - row;
-          const d = Math.hypot(dx, dy);
-          if (d < best) { best = d; bdx = dx; bdy = dy; }
-        }
-      }
-      const i = (y * W + x) * 4;
-      if (best < rad) {
-        const k = (best / rad) * 0.9; // tilt grows toward the rim
-        const nx = (-bdx / (best || 1)) * k;
-        const ny = (bdy / (best || 1)) * k;
-        img.data[i] = 128 + nx * 110;
-        img.data[i + 1] = 128 + ny * 110;
-        img.data[i + 2] = 255 * Math.sqrt(Math.max(0, 1 - Math.min(1, nx * nx + ny * ny)));
-      } else {
-        img.data[i] = 128;
-        img.data[i + 1] = 128;
-        img.data[i + 2] = 255;
-      }
-      img.data[i + 3] = 255;
-    }
+function dimpleCentres(count = 352): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < count; i++) {
+    const y = 1 - ((i + 0.5) / count) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const t = i * golden;
+    out.push(new THREE.Vector3(Math.cos(t) * r, y, Math.sin(t) * r));
   }
-  g.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
-  return t;
+  return out;
 }
 
-export function golfBall(radius: number): THREE.Mesh {
+/**
+ * Golf ball with real, modelled dimples: each one is a shallow spherical bowl
+ * pressed into the surface, so light and reflections pool in them like on a real
+ * ball. Built once and shared.
+ */
+let ballGeometry: THREE.BufferGeometry | null = null;
+export function dimpledBallGeometry(radius = GOLF_BALL_RADIUS): THREE.BufferGeometry {
+  if (ballGeometry) return ballGeometry;
+  // Fine, evenly spaced mesh (~131k triangles) so the bowls are smooth
+  let geo: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, 80);
+  geo.deleteAttribute('normal');
+  geo.deleteAttribute('uv');
+  geo = mergeVertices(geo);
+  const centres = dimpleCentres();
+  const dimpleR = 0.079; // dimple radius, as an angle in radians (≈ 3.4 mm across), leaving thin lands between
+  const depth = 0.021; // ≈ 0.45 mm: a little deeper than real so the dimples read on screen
+  const cosLimit = Math.cos(dimpleR);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).normalize();
+    let best = -1;
+    for (const c of centres) {
+      const d = v.dot(c);
+      if (d > best) best = d;
+    }
+    let r = 1;
+    if (best > cosLimit) {
+      const a = Math.acos(Math.min(1, best)) / dimpleR; // 0 at the centre, 1 at the rim
+      r -= depth * (1 - a * a); // spherical-cap bowl
+    }
+    v.multiplyScalar(r * radius);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  ballGeometry = geo;
+  return geo;
+}
+
+export function golfBall(radius = GOLF_BALL_RADIUS): THREE.Mesh {
+  // Glossy urethane cover: white base under a clear coat that mirrors the sky
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
-    roughness: 0.42,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.12,
-    normalMap: dimpleNormalMap(),
-    normalScale: new THREE.Vector2(0.55, 0.55),
+    color: 0xf3f3f1,
+    roughness: 0.28,
+    clearcoat: 1,
+    clearcoatRoughness: 0.04,
+    envMapIntensity: 1.1,
   });
-  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 32), mat);
+  const m = new THREE.Mesh(dimpledBallGeometry(radius), mat);
   m.castShadow = true;
   return m;
 }
