@@ -14,8 +14,25 @@ The goal is a verified **device profile** (JSON) that tells the app how to turn 
 | Vendor service | `50340001-2065-6964-6461-63676e697773` | same |
 | Command channel | `50340002-…` write / write-without-response | OpenSC4 Device log |
 | Data channel | `50340003-…` notify | OpenSC4 Device log |
-| Start command | *unknown: the device may stay silent until the official app sends one* | |
-| Shot frame layout | *not yet decoded* | |
+| Start command | **none needed**: the data channel sends a frame after a hit without any command | first capture, 2026-11-20 |
+| Serial number | `0x2A25` reads `SC40B25000514` | iOS / Bluefy |
+| Hit frame (`"Ss"`, 20 bytes) | see below | first capture |
+
+### First captured frame
+
+`53 73 00 00 01 1A 0B 14 16 27 0C 00 14 00 00 60 42 00 45 BC`, received at 22:39:14 right after a hit.
+
+| Bytes | Value | Meaning |
+|---|---|---|
+| 0–1 | `53 73` = "Ss" | message type |
+| 2–4 | `00 00 01` | unknown (counter / shot number?) |
+| 5–10 | `1A 0B 14 16 27 0C` | device clock: 2026-11-20 22:39:12 (YY MM DD hh mm ss) |
+| 11–12 | `00 14` | unknown (20) |
+| 13–16 | `00 00 60 42` | float32 little-endian = 56.0, unknown (ball speed?) |
+| 17–18 | `00 45` | unknown (69) |
+| 19 | `BC` | checksum: all 20 bytes sum to 0 (mod 256), confirmed |
+
+20 bytes is the payload limit of one default BLE notification, so a full shot may span several frames. Next step: more frames, each paired with the numbers the device's screen showed (the Device tab now has a form for that).
 
 **On Windows:** Chrome's `bluetooth-internals` page showed no characteristics at all, but OpenSC4's own connection (Web Bluetooth with the vendor service requested) lists and subscribes to them fine.
 

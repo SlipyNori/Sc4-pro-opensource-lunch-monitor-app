@@ -222,3 +222,6 @@ input[type="range"] { padding: 0; background: none; border: none; border-radius:
 
 .send-row { margin-top: 8px; margin-bottom: 4px; }
 .send-row input { flex: 1 1 200px; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.label-form { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.label-form .row { margin: 0; }

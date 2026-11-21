@@ -1,5 +1,6 @@
 import { BaseAdapter } from './DeviceAdapter';
 import { bytesToHex, decodeFrame, hexToBytes, matchStatus, type DeviceProfile } from './frameDecoder';
+import { describeSc4Frame } from './sc4';
 
 /**
  * Web Bluetooth launch-monitor adapter.
@@ -22,7 +23,7 @@ export class BluetoothDevice extends BaseAdapter {
   private writable: BluetoothRemoteGATTCharacteristic[] = [];
   private handlers = new Map<BluetoothRemoteGATTCharacteristic, (ev: Event) => void>();
   /** Captured packets (for export / protocol research) */
-  readonly capture: { t: number; char: string; hex: string }[] = [];
+  readonly capture: { t: number; char: string; hex: string; screen?: Record<string, number> }[] = [];
 
   constructor(public profile: DeviceProfile) {
     super();
@@ -114,7 +115,7 @@ export class BluetoothDevice extends BaseAdapter {
         if (p.notify || p.indicate) {
           try {
             await ch.startNotifications();
-            if (this.chars.some((c) => c.uuid === ch.uuid)) continue; // already listening
+            if (this.chars.some((c) => c.uuid.toLowerCase() === ch.uuid.toLowerCase())) continue; // already listening
             const handler = (ev: Event) => {
               const value = (ev.target as BluetoothRemoteGATTCharacteristic).value!;
               this.onPacket(ch.uuid, value, shotChar);
@@ -131,11 +132,15 @@ export class BluetoothDevice extends BaseAdapter {
     return this.chars.length;
   }
 
-  private onPacket(charUuid: string, value: DataView, shotChar: string | null) {
+  private onPacket(rawUuid: string, value: DataView, shotChar: string | null) {
+    // Some browsers (e.g. Bluefy on iOS) report UUIDs in capitals or short form
+    const charUuid = rawUuid.toLowerCase();
     const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     const hex = bytesToHex(bytes);
     this.capture.push({ t: Date.now(), char: charUuid, hex });
-    this.emit('log', `◀ ${charUuid.slice(4, 8)} ${hex}`);
+    this.emit('log', `◀ ${shortId(charUuid)} ${hex}`);
+    const info = describeSc4Frame(bytes);
+    if (info && charUuid.startsWith('50340003')) this.emit('log', `    ↳ ${info.summary}`);
     this.emit('packet', charUuid, hex);
     const readiness = matchStatus(bytes, this.profile);
     if (readiness) {
@@ -168,12 +173,12 @@ export class BluetoothDevice extends BaseAdapter {
     const want = this.profile.commandCharacteristic
       ? BluetoothUUID.getCharacteristic(normaliseUuid(this.profile.commandCharacteristic))
       : null;
-    const ch = this.writable.find((c) => (want ? c.uuid === want : true));
+    const ch = this.writable.find((c) => (want ? c.uuid.toLowerCase() === want : true));
     if (!ch) throw new Error('Not connected, or the device has no command channel');
     if (ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(bytes);
     else await ch.writeValue(bytes);
     this.capture.push({ t: Date.now(), char: `▶${ch.uuid}`, hex: bytesToHex(bytes) });
-    this.emit('log', `▶ ${ch.uuid.slice(4, 8)} ${bytesToHex(bytes)}  (sent)`);
+    this.emit('log', `▶ ${shortId(ch.uuid)} ${bytesToHex(bytes)}  (sent)`);
   }
 
   private resetChannels() {
@@ -181,6 +186,13 @@ export class BluetoothDevice extends BaseAdapter {
     this.handlers.clear();
     this.chars = [];
     this.writable = [];
+  }
+
+  /** Attach what the device's screen showed to the latest data-channel packet. Returns that packet. */
+  labelLatest(screen: Record<string, number>) {
+    const p = [...this.capture].reverse().find((c) => c.char.startsWith('50340003'));
+    if (p) p.screen = screen;
+    return p;
   }
 
   exportCapture(): string {
@@ -207,3 +219,9 @@ function printable(v: DataView): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** "50340003-…" → "0003", "00002a19-…" → "2a19", "2A19" → "2a19" */
+function shortId(uuid: string) {
+  const u = uuid.toLowerCase();
+  return u.length > 8 ? u.slice(4, 8) : u;
+}

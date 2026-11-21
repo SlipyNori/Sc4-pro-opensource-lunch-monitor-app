@@ -868,6 +868,36 @@ function appendLog(line: string) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 $('#log-clear').addEventListener('click', () => (logEl.textContent = ''));
+$<HTMLFormElement>('#label-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const form = e.target as HTMLFormElement;
+  const screen: Record<string, number> = {};
+  for (const [k, v] of new FormData(form).entries()) {
+    const n = parseFloat(String(v));
+    if (Number.isFinite(n)) screen[k] = n;
+  }
+  if (!Object.keys(screen).length) return ($('#label-msg').textContent = 'Type at least one number from the SC4 Pro screen.');
+  const p = ble.labelLatest(screen);
+  if (!p) return ($('#label-msg').textContent = 'No SC4 Pro message yet. Hit a shot first, then save.');
+  appendLog(`✎ Screen for message at ${new Date(p.t).toLocaleTimeString()}: ${Object.entries(screen).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  $('#label-msg').textContent = 'Saved.';
+  form.reset();
+});
+$('#log-copy').addEventListener('click', async () => {
+  const text = ble.exportCapture() + '\n\n' + (logEl.textContent ?? '');
+  try {
+    await navigator.clipboard.writeText(text);
+    $('#label-msg').textContent = 'Copied. Paste it into a message to share it.';
+  } catch {
+    // Clipboard blocked: show the text selected so it can be copied by hand
+    logEl.textContent = text;
+    const r = document.createRange();
+    r.selectNodeContents(logEl);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(r);
+    $('#label-msg').textContent = 'Copy was blocked. The log is selected; use your browser’s Copy.';
+  }
+});
 $<HTMLFormElement>('#send-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $<HTMLInputElement>('#send-hex');
