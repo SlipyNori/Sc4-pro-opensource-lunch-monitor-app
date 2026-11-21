@@ -928,6 +928,13 @@ function dateStamp() {
   return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 }
 
+// ---------- Offline support (only when served from a website, not a local file) ----------
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {
+    /* offline support is optional */
+  });
+}
+
 // ---------- Initial render ----------
 renderStatus();
 renderTiles(shots[shots.length - 1]);
