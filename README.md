@@ -6,14 +6,14 @@ An **open-source launch monitor dashboard and golf simulator** for the Swing Cad
 
 ## Features
 
-- **3D driving range** (Three.js): physical sky with late-afternoon sun, filmic tone mapping, soft shadows, mown fairway stripes, a tree line, yardage signs, target greens with waving flags, a dimpled glossy ball, thick shot tracers and depth of field focused on the ball. Three camera views (behind, follow, top-down) and a Graphics setting (High / Medium / Low) for slower computers.
+- **3D driving range** (Three.js): you stand in a covered hitting bay (roof, posts, mats, ball baskets) looking out over rolling terrain with mown stripes, wind-blown 3D grass blades, realistic trees with bark and leaves (ez-tree), safety nets, scattered range balls, target greens with bunkers and waving flags, yardage signs, drifting clouds and distant hills. Physical sky, filmic tone mapping, soft shadows, a dimpled glossy ball, thick tracers and depth of field. Three camera views and a Graphics setting (High / Medium / Low) that thins grass and trees on slower devices.
 - **Physics-based ball flight**: gravity, drag, Magnus lift, spin decay, wind, altitude/temperature (air density), bounce and roll. It is calibrated against published tour-average carry, apex and landing-angle data; see `tests/ballFlight.test.ts`.
 - **Shot dashboard** with carry, total, offline, ball/club speed, smash, launch, direction, spin, spin axis, apex and landing angle. Values the device didn't report are estimated per club and marked *(est.)*.
 - **History and per-club stats**, including averages and consistency (carry/offline standard deviation). Shots are saved in your browser.
 - **CSV export/import.** Import understands common column names (`Ball Speed`, `Launch Angle`, `Back Spin`, …).
 - **Ready light + webcam ball detection**: a big status light on the range, readable from the hitting position. Point any webcam at the hitting spot and draw a box around the ball; the app learns the ball's look, so white and coloured balls (yellow, orange, red or pink foam balls) both work, even on light floors. The light turns green when a ball is sitting still in the box and the radar is connected, and a hit is detected when the ball leaves. Radar can't see a ball at rest, so the camera handles setup while the radar handles the numbers.
 - **Impact replay**: while the webcam is on, a small rolling buffer of low-resolution frames is kept in memory. Each hit saves about 1.5 s before and 0.7 s after impact and plays it in slow motion in a corner of the range, with the impact frame marked and a slider to step through frames. Three quality levels (10/15/30 fps). Clips for the last 6 shots stay in memory; click a shot in History to replay it.
-- **Play real courses on satellite imagery**: search for a course by name, and the app loads its hole layouts from OpenStreetMap (tees, centre lines, greens, fairways, bunkers, water) and stitches satellite imagery under each hole. Play in 3D or top-down with a clickable minimap for aiming, lies that change the strike (rough, bunkers), water penalties, putting with real hole-capture physics, and a scorecard. Courses are played flat (no elevation yet).
+- **Play real courses on satellite imagery** (with 3D trees planted where OpenStreetMap maps woods, tree rows and single trees, glossy water, and grass blades around the ball): search for a course by name, and the app loads its hole layouts from OpenStreetMap (tees, centre lines, greens, fairways, bunkers, water) and stitches satellite imagery under each hole. Play in 3D or top-down with a clickable minimap for aiming, lies that change the strike (rough, bunkers), water penalties, putting with real hole-capture physics, and a scorecard. Courses are played flat (no elevation yet).
 - **Camera putting**: with a webcam looking down at the ball, putts are measured from the video. The ball's known size (42.67 mm) sets the scale, and real frame timestamps give the speed, so slow putts the radar can't register still count. Measures ball speed and start direction; roll distance comes from the green speed (Stimp) setting.
 - **Device layer** with three inputs:
   - **Simulator**, so you can use everything with no hardware (press **Space**).
@@ -58,6 +58,11 @@ src/
 scripts/calibrate.ts      Re-fit aero coefficients against reference data
 docs/PROTOCOL.md          How to reverse-engineer / contribute a device profile
 ```
+
+## Third-party code
+
+- [ez-tree](https://github.com/dgreenheck/ez-tree) by Daniel Greenheck (MIT): procedural trees with bark and leaf textures.
+- [three.js](https://threejs.org) (MIT).
 
 ## Map and course data
 

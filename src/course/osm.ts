@@ -31,12 +31,20 @@ export interface Hole {
   handicap?: number;
 }
 
+/** Where trees stand, for planting 3D trees (from OSM woods, tree rows and single trees) */
+export interface CourseTrees {
+  woods: EN[][];
+  rows: EN[][];
+  singles: EN[];
+}
+
 export interface Course {
   id: string;
   name: string;
   origin: LatLon;
   holes: Hole[];
   features: Feature[];
+  trees?: CourseTrees;
 }
 
 export interface PlaceResult {
@@ -187,7 +195,10 @@ export async function loadCourse(
       `[out:json][timeout:25];
 (way["golf"~"^(green|tee|fairway|bunker|water_hazard|lateral_water_hazard)$"](${bbox});
  node["golf"="pin"](${bbox});
- way["natural"="water"](${bbox}););
+ way["natural"="water"](${bbox});
+ way["natural"~"^(wood|tree_row|scrub)$"](${bbox});
+ way["landuse"="forest"](${bbox});
+ node["natural"="tree"](${bbox}););
 out geom;`,
       onTry,
     );
@@ -252,12 +263,27 @@ export function parseCourse(data: OverpassResponse, name: string, id = 'course',
   const features: Feature[] = [];
   const pins: EN[] = [];
   const holeWays: OverpassElement[] = [];
+  const trees: CourseTrees = { woods: [], rows: [], singles: [] };
 
   for (const e of els) {
     const tags = e.tags ?? {};
     if (e.type === 'node' && tags.golf === 'pin' && e.lat !== undefined) {
       pins.push(toEN({ lat: e.lat, lon: e.lon! }, origin));
       continue;
+    }
+    if (e.type === 'node' && tags.natural === 'tree' && e.lat !== undefined) {
+      trees.singles.push(toEN({ lat: e.lat, lon: e.lon! }, origin));
+      continue;
+    }
+    if (e.type === 'way' && e.geometry && e.geometry.length >= 2) {
+      if (tags.natural === 'tree_row') {
+        trees.rows.push(en(e.geometry));
+        continue;
+      }
+      if ((tags.natural === 'wood' || tags.natural === 'scrub' || tags.landuse === 'forest') && e.geometry.length >= 3) {
+        trees.woods.push(en(e.geometry));
+        continue;
+      }
     }
     if (tags.golf === 'hole' && e.type === 'way' && e.geometry && e.geometry.length >= 2) {
       holeWays.push(e);
@@ -312,7 +338,7 @@ export function parseCourse(data: OverpassResponse, name: string, id = 'course',
   holes.sort((a, b) => (a.number || 99) - (b.number || 99));
   holes.forEach((h, i) => { if (!h.number) h.number = i + 1; });
 
-  return { id, name, origin, holes, features };
+  return { id, name, origin, holes, features, trees };
 }
 
 /** What the ball is lying on at a point. Water beats everything; rough is the default. */

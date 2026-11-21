@@ -8,8 +8,10 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { FlightResult, TrajectoryPoint } from '../physics/ballFlight';
-import { ydToM } from '../physics/units';
-import { flagstick, golfBall, grassTexture, treeLine, yardageSign } from './assets';
+import { flagstick, golfBall, grassTexture } from './assets';
+import { buildRangeScenery } from './scenery';
+import { GrassField } from './grass';
+import { updateTrees, type Forest } from './trees';
 
 export type CameraMode = 'behind' | 'follow' | 'top';
 /** high: shadows + depth of field · medium: shadows · low: neither (for slower computers) */
@@ -60,6 +62,11 @@ export class RangeScene {
   private satelliteShadow: THREE.Mesh | null = null;
   private flag: ReturnType<typeof flagstick>;
   private rangeFlags: ReturnType<typeof flagstick>[] = [];
+  private forest: Forest;
+  private courseForest: Forest | null = null;
+  private clouds: THREE.ShaderMaterial;
+  private rangeGrass: GrassField;
+  private courseGrass: GrassField;
   private mode: 'range' | 'course' = 'range';
   /** Where the next shot starts and which way it's aimed (course metres) */
   private origin: EN = { e: 0, n: 0 };
@@ -83,7 +90,7 @@ export class RangeScene {
     container.appendChild(this.renderer.domElement);
     this.maxAniso = this.renderer.capabilities.getMaxAnisotropy();
 
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.2, 12000);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.3, 12000);
 
     // ---- Sky, sun and atmosphere (late afternoon, sun behind-left of the golfer) ----
     const sky = new Sky();
@@ -105,7 +112,7 @@ export class RangeScene {
     this.scene.environmentIntensity = 0.55;
     pmrem.dispose();
 
-    this.scene.fog = new THREE.Fog(0xc4d6e0, 260, 1400);
+    this.scene.fog = new THREE.Fog(0xc9d9e2, 320, 1700);
 
     this.scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x40603a, 0.55));
     this.sun = new THREE.DirectionalLight(0xffe7c4, 2.6);
@@ -118,7 +125,24 @@ export class RangeScene {
     this.scene.add(this.sun, this.sun.target);
 
     this.scene.add(this.rangeGroup, this.courseGroup);
-    this.buildRange();
+    const scenery = buildRangeScenery(this.maxAniso);
+    this.rangeGroup.add(scenery.group);
+    this.rangeFlags = scenery.flags;
+    this.forest = scenery.forest;
+    this.clouds = scenery.clouds.material as THREE.ShaderMaterial;
+    // Clouds belong to the sky, so they stay visible on courses too
+    this.rangeGroup.remove(scenery.clouds);
+    this.scene.add(scenery.clouds);
+
+    // Real grass blades: around the tee on the range, around the ball on a course
+    this.rangeGrass = new GrassField({
+      radius: 32, count: 70000, minHeight: 0.035, maxHeight: 0.085, base: 0x355f22, tip: 0x9cc76a,
+      keep: (x, z) => z < 0.2 && !(Math.abs(x) < 0.9 && Math.abs(z) < 0.9),
+    });
+    this.rangeGrass.centreOn(0, -14);
+    this.rangeGroup.add(this.rangeGrass);
+    this.courseGrass = new GrassField({ radius: 26, count: 50000, minHeight: 0.04, maxHeight: 0.11, base: 0x2f5a1f, tip: 0x93bf62 });
+    this.courseGroup.add(this.courseGrass);
 
     // ---- Course mode ground ----
     this.flag = flagstick(2.4);
@@ -128,9 +152,9 @@ export class RangeScene {
     );
     beacon.position.y = 15;
     this.flag.add(beacon);
-    const base = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), this.grassMaterial(0x93b27c, 1500));
+    const base = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), this.grassMaterial(0xc4e0a4, 1500));
     base.rotation.x = -Math.PI / 2;
-    base.position.y = -0.05;
+    base.position.y = -0.6; // well below the satellite photo, so distant ground never wins the depth test
     base.receiveShadow = true;
     this.courseGroup.add(base, this.flag);
     this.courseGroup.visible = false;
@@ -152,6 +176,9 @@ export class RangeScene {
     this.composer.addPass(this.bokeh);
     this.composer.addPass(new OutputPass());
 
+    // Developer aid: open the app with ?debug to inspect the scene from the console
+    if (location.search.includes('debug')) Object.assign(window, { __opensc4: { scene: this.scene, renderer: this.renderer, camera: this.camera, view: this } });
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -165,97 +192,16 @@ export class RangeScene {
     return new THREE.MeshStandardMaterial({ map, color, roughness: 0.95 });
   }
 
-  private buildRange() {
-    const grass = grassTexture(this.maxAniso);
-
-    // Rough beyond the range
-    const roughMap = grass.clone();
-    roughMap.repeat.set(220, 260);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1400), new THREE.MeshStandardMaterial({ map: roughMap, color: 0x8aa274, roughness: 1 }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.z = -500;
-    ground.receiveShadow = true;
-    this.rangeGroup.add(ground);
-
-    // Mown fairway: alternating light/dark bands, as the mower runs toward and away from the tee
-    const bandLen = 12.5;
-    for (let i = -1; i < 30; i++) {
-      const map = grass.clone();
-      map.repeat.set(16, 3);
-      const stripe = new THREE.Mesh(
-        new THREE.PlaneGeometry(80, bandLen),
-        new THREE.MeshStandardMaterial({ map, color: i % 2 ? 0xe2f7c4 : 0xa9cf8a, roughness: 0.9 }),
-      );
-      stripe.rotation.x = -Math.PI / 2;
-      stripe.position.set(0, 0.01, -i * bandLen - bandLen / 2 + 2);
-      stripe.receiveShadow = true;
-      this.rangeGroup.add(stripe);
-    }
-
-    // Hitting mat and tee markers
-    const mat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.03, 1.6), new THREE.MeshStandardMaterial({ color: 0x2f6e3a, roughness: 1 }));
-    mat.position.set(0, 0.015, 0);
-    mat.receiveShadow = true;
-    this.rangeGroup.add(mat);
-    for (const x of [-2.6, 2.6]) {
-      const marker = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), new THREE.MeshStandardMaterial({ color: 0x1b5fbf, roughness: 0.4 }));
-      marker.position.set(x, 0.07, -0.6);
-      marker.castShadow = true;
-      this.rangeGroup.add(marker);
-    }
-
-    // Yardage lines and signs every 50 yd
-    for (let yd = 50; yd <= 350; yd += 50) {
-      const z = -ydToM(yd);
-      const line = new THREE.Mesh(
-        new THREE.PlaneGeometry(80, 0.35),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }),
-      );
-      line.rotation.x = -Math.PI / 2;
-      line.position.set(0, 0.03, z);
-      this.rangeGroup.add(line);
-      for (const x of [-44, 44]) {
-        const sign = yardageSign(String(yd));
-        sign.position.set(x, 0, z);
-        sign.lookAt(0, 0, 30); // face back toward the tee
-        this.rangeGroup.add(sign);
-      }
-    }
-
-    // Target greens with a fringe and a flag
-    for (const [yd, x] of [[75, -12], [125, 10], [175, -6], [225, 14], [275, 0]] as const) {
-      const z = -ydToM(yd);
-      const fringe = new THREE.Mesh(new THREE.CircleGeometry(10.5, 48), new THREE.MeshStandardMaterial({ color: 0x5e9a45, roughness: 0.9 }));
-      fringe.rotation.x = -Math.PI / 2;
-      fringe.position.set(x, 0.035, z);
-      fringe.receiveShadow = true;
-      const greenMap = grass.clone();
-      greenMap.repeat.set(6, 6);
-      const green = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ map: greenMap, color: 0xd2f0b8, roughness: 0.6 }));
-      green.rotation.x = -Math.PI / 2;
-      green.position.set(x, 0.045, z);
-      green.receiveShadow = true;
-      const flag = flagstick(3);
-      flag.position.set(x, 0.05, z);
-      this.rangeFlags.push(flag);
-      this.rangeGroup.add(fringe, green, flag);
-    }
-
-    // Tree lines down both sides and across the back give the eye depth cues
-    const r = seeded(3);
-    const trees: { x: number; z: number; s: number }[] = [];
-    for (let z = -20; z > -480; z -= 9 + r() * 6) {
-      trees.push({ x: -62 - r() * 18, z, s: 0.8 + r() * 0.7 });
-      trees.push({ x: 62 + r() * 18, z: z - 4, s: 0.8 + r() * 0.7 });
-    }
-    for (let x = -80; x <= 80; x += 8 + r() * 6) trees.push({ x, z: -470 - r() * 25, s: 1 + r() * 0.8 });
-    this.rangeGroup.add(treeLine(trees));
-  }
-
   // ---------------- Quality ----------------
 
   setQuality(q: Quality) {
     this.quality = q;
+    const grass = q === 'high' ? 1 : q === 'medium' ? 0.35 : 0;
+    this.rangeGrass.setDensity(grass);
+    this.courseGrass.setDensity(grass);
+    const trees = q === 'high' ? 1 : q === 'medium' ? 0.5 : 0.25;
+    this.forest.setDensity(trees);
+    this.courseForest?.setDensity(trees);
     this.renderer.shadowMap.enabled = q !== 'low';
     this.sun.castShadow = q !== 'low';
     this.renderer.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio, 2));
@@ -323,7 +269,45 @@ export class RangeScene {
     this.aim = { ...aim };
     this.target = target ?? null;
     this.ball.position.copy(enToThree(p.e, BALL_R, p.n));
+    const b = enToThree(p.e, 0, p.n);
+    this.courseGrass.centreOn(b.x, b.z);
     if (!this.anim) this.placeStaticCamera();
+  }
+
+  private water: THREE.Mesh[] = [];
+
+  /** Glossy water surfaces over the hole's ponds and lakes (course metres, outlines). */
+  setCourseWater(polys: EN[][]) {
+    for (const m of this.water) {
+      this.courseGroup.remove(m);
+      m.geometry.dispose();
+    }
+    this.water = [];
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1a4560, roughness: 0.22, metalness: 0, transparent: true, opacity: 0.94, envMapIntensity: 0.35 });
+    for (const poly of polys) {
+      if (poly.length < 3) continue;
+      const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.e, p.n)));
+      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+      mesh.rotation.x = -Math.PI / 2; // shape y (north) → −z
+      mesh.position.y = 0.04;
+      mesh.receiveShadow = true;
+      this.water.push(mesh);
+      this.courseGroup.add(mesh);
+    }
+  }
+
+  /** Plant 3D trees on the current hole (course coordinates, metres). */
+  setCourseTrees(forest: Forest | null) {
+    if (this.courseForest) {
+      this.courseGroup.remove(this.courseForest);
+      this.courseForest.dispose();
+    }
+    this.courseForest = forest;
+    if (forest) {
+      const q = this.quality;
+      forest.setDensity(q === 'high' ? 1 : q === 'medium' ? 0.5 : 0.25);
+      this.courseGroup.add(forest);
+    }
   }
 
   /** Shot frame (x downrange, z right) → three.js, using the current ball position and aim */
@@ -350,9 +334,10 @@ export class RangeScene {
       this.camera.position.copy(mid).add(new THREE.Vector3(0, span * 1.15, 0)).addScaledVector(fwd, -1);
       this.camera.lookAt(mid);
     } else if (this.mode === 'course') {
-      // Higher on a course so the satellite ground reads clearly down the hole
-      this.camera.position.copy(ball).addScaledVector(fwd, -16).setY(9);
-      this.camera.lookAt(ball.clone().addScaledVector(fwd, 120));
+      // A little above head height behind the ball: trees and grass give depth,
+      // while the ground down the hole still reads clearly
+      this.camera.position.copy(ball).addScaledVector(fwd, -9).setY(3.4);
+      this.camera.lookAt(ball.clone().addScaledVector(fwd, 120).setY(1));
     } else {
       // Eye height, standing a few paces behind the ball
       this.camera.position.copy(ball).addScaledVector(fwd, -5.5).setY(1.7);
@@ -457,6 +442,10 @@ export class RangeScene {
 
     for (const f of this.rangeFlags) f.wave(t);
     this.flag.wave(t);
+    updateTrees(t);
+    this.clouds.uniforms.uTime.value = t;
+    this.rangeGrass.update(t);
+    this.courseGrass.update(t);
 
     // Keep the shadow camera centred on the ball so shadows stay sharp where you look
     const focusPt = this.ball.position;
@@ -469,7 +458,7 @@ export class RangeScene {
       const want = this.camera.position.distanceTo(focusPt);
       u.focus.value += (want - u.focus.value) * 0.15;
       // Gentler on a course: the satellite detail down the hole matters for aiming
-      u.aperture.value = this.mode === 'course' ? 0.00003 : 0.00012;
+      u.aperture.value = this.mode === 'course' ? 0.00003 : 0.00007;
       this.composer.render();
     } else {
       this.renderer.render(this.scene, this.camera);
@@ -497,9 +486,6 @@ export class RangeScene {
   }
 }
 
-function seeded(seed: number) {
-  return () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-}
 
 function glowTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');

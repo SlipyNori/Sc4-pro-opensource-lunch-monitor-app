@@ -16,6 +16,7 @@
     "calibrate": "vite-node scripts/calibrate.ts"
   },
   "dependencies": {
+    "@dgreenheck/ez-tree": "^1.1.0",
     "three": "0.169.0"
   },
   "devDependencies": {

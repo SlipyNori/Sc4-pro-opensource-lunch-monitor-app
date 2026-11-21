@@ -74,12 +74,13 @@ export async function buildImagery(origin: LatLon, rect: ENRect, maxPx = 2048, m
   return { canvas, rect, zoom: z, failed, total: jobs.length };
 }
 
+// Natural, photo-like tones (the map is drawn unlit, like a satellite photo)
 const FEATURE_STYLE: Record<string, string> = {
-  fairway: '#78b552',
-  tee: '#86c463',
-  green: '#93d96f',
-  bunker: '#e9dcb0',
-  water: '#3f7fb5',
+  fairway: '#5e9440',
+  tee: '#679c47',
+  green: '#6fa94c',
+  bunker: '#d9cba0',
+  water: '#2f5f80',
 };
 
 /**
@@ -99,7 +100,7 @@ export function buildFeatureImagery(
   canvas.height = Math.ceil(h / s);
   const g = canvas.getContext('2d')!;
   // Rough: mottled dark green
-  g.fillStyle = '#4f7f3c';
+  g.fillStyle = '#466f33';
   g.fillRect(0, 0, canvas.width, canvas.height);
   let seed = 9;
   const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
