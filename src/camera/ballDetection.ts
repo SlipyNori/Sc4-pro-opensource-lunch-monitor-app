@@ -29,6 +29,8 @@ export interface PixelCount {
   /** Centroid of ball pixels in normalised frame coordinates, if any */
   cx?: number;
   cy?: number;
+  /** Bounding box of ball pixels, in frame pixels (for measuring the ball's size) */
+  box?: { x0: number; y0: number; x1: number; y1: number };
 }
 
 /** Count ball-coloured pixels inside the zone of an RGBA frame. */
@@ -46,6 +48,7 @@ export function countBallPixels(
   let count = 0;
   let sx = 0;
   let sy = 0;
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
   for (let y = y0; y < y1; y++) {
     let i = (y * width + x0) * 4;
     for (let x = x0; x < x1; x++, i += 4) {
@@ -57,10 +60,16 @@ export function countBallPixels(
         count++;
         sx += x;
         sy += y;
+        if (x < bx0) bx0 = x;
+        if (x > bx1) bx1 = x;
+        if (y < by0) by0 = y;
+        if (y > by1) by1 = y;
       }
     }
   }
-  return count ? { count, cx: sx / count / width, cy: sy / count / height } : { count };
+  return count
+    ? { count, cx: sx / count / width, cy: sy / count / height, box: { x0: bx0, y0: by0, x1: bx1, y1: by1 } }
+    : { count };
 }
 
 export type BallState = 'empty' | 'settling' | 'ready' | 'cooldown';

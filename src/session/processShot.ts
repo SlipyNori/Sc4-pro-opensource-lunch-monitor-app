@@ -1,4 +1,5 @@
 import { simulateShot, DEFAULT_ENVIRONMENT, type Environment, type FlightResult } from '../physics/ballFlight';
+import { simulatePutt } from '../physics/putt';
 import { mToFt, mToYd } from '../physics/units';
 import { CLUB_DEFAULTS, type ClubId, type Shot, type ShotMeasurement } from '../types';
 
@@ -23,9 +24,14 @@ export function processShot(
   source: string,
   env: Environment = DEFAULT_ENVIRONMENT,
 ): { shot: Shot; flight: FlightResult } {
-  const launch = completeMeasurement(m, club);
-  const estimated = (Object.keys(launch) as (keyof typeof launch)[]).filter((k) => m[k] === undefined);
-  const flight = simulateShot(launch, env);
+  const isPutt = club === 'PT';
+  const launch = isPutt
+    ? { ballSpeedMph: m.ballSpeedMph, launchAngleDeg: 0, launchDirectionDeg: m.launchDirectionDeg ?? 0, spinRpm: 0, spinAxisDeg: 0 }
+    : completeMeasurement(m, club);
+  const estimated = isPutt
+    ? []
+    : (Object.keys(launch) as (keyof typeof launch)[]).filter((k) => m[k] === undefined);
+  const flight = isPutt ? simulatePutt(launch.ballSpeedMph, launch.launchDirectionDeg, env.stimp ?? 10) : simulateShot(launch, env);
   const shot: Shot = {
     ...m,
     ...launch,
@@ -46,3 +52,10 @@ export function processShot(
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/** Re-simulate a stored shot (e.g. to replay it from History). */
+export function flightForShot(s: Shot, env: Environment = DEFAULT_ENVIRONMENT): FlightResult {
+  return s.club === 'PT'
+    ? simulatePutt(s.ballSpeedMph, s.launchDirectionDeg ?? 0, env.stimp ?? 10)
+    : simulateShot(completeMeasurement(s, s.club), env);
+}

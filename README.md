@@ -13,6 +13,8 @@ An **open-source launch monitor dashboard and golf simulator** for the Swing Cad
 - **CSV export/import.** Import understands common column names (`Ball Speed`, `Launch Angle`, `Back Spin`, …).
 - **Ready light + webcam ball detection**: a big status light on the range, readable from the hitting position. Point any webcam at the hitting spot and draw a box around the ball. The light turns green when a ball is sitting still in the box and the radar is connected, and a hit is detected when the ball leaves. Radar can't see a ball at rest, so the camera handles setup while the radar handles the numbers.
 - **Impact replay**: while the webcam is on, a small rolling buffer of low-resolution frames is kept in memory. Each hit saves about 1.5 s before and 0.7 s after impact and plays it in slow motion in a corner of the range, with the impact frame marked and a slider to step through frames. Three quality levels (10/15/30 fps). Clips for the last 6 shots stay in memory; click a shot in History to replay it.
+- **Play real courses on satellite imagery**: search for a course by name, and the app loads its hole layouts from OpenStreetMap (tees, centre lines, greens, fairways, bunkers, water) and stitches satellite imagery under each hole. Play in 3D or top-down with a clickable minimap for aiming, lies that change the strike (rough, bunkers), water penalties, putting with real hole-capture physics, and a scorecard. Courses are played flat (no elevation yet).
+- **Camera putting**: with a webcam looking down at the ball, putts are measured from the video. The ball's known size (42.67 mm) sets the scale, and real frame timestamps give the speed, so slow putts the radar can't register still count. Measures ball speed and start direction; roll distance comes from the green speed (Stimp) setting.
 - **Device layer** with three inputs:
   - **Simulator**, so you can use everything with no hardware (press **Space**).
   - **Manual entry** for numbers read off the SC4 Pro display or app.
@@ -56,10 +58,15 @@ scripts/calibrate.ts      Re-fit aero coefficients against reference data
 docs/PROTOCOL.md          How to reverse-engineer / contribute a device profile
 ```
 
+## Map and course data
+
+- **Course layouts**: © OpenStreetMap contributors, available under the [ODbL](https://www.openstreetmap.org/copyright). Fetched on demand from the public Overpass API, and searched with Photon (komoot) with Nominatim as a fallback. If your course has no holes, it hasn't been mapped yet. Map it at openstreetmap.org (`golf=hole` lines from tee to green, plus `golf=green`, `golf=bunker` and so on) and it will work here for everyone.
+- **Satellite imagery**: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), shown with attribution. Check Esri's terms of use before any commercial use, or point `TILE_URL` in `src/course/satellite.ts` at another imagery provider.
+
 ## Roadmap ideas
 
 - Verified SC4 Pro profile (needs community packet captures)
-- Course play mode (holes, hazards, scoring)
+- Elevation and green slopes (break) on courses
 - Native companion (Android/desktop) for platforms without Web Bluetooth
 - Open connector output for other sim software (e.g. GSPro's open API)
 - Putting green and short-game practice games

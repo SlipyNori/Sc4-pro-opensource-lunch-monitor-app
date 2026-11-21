@@ -10,6 +10,10 @@
   <body>
     <header class="topbar">
       <div class="brand">⛳ OpenSC4 <span>Range</span></div>
+      <div class="mode-toggle" role="group" aria-label="Mode">
+        <button data-mode="range" class="active" aria-pressed="true">Range</button>
+        <button data-mode="course" aria-pressed="false">Course</button>
+      </div>
       <div class="controls">
         <label>Device
           <select id="device-select"></select>
@@ -57,6 +61,30 @@
       </section>
 
       <aside class="shot-panel">
+        <section id="hole-card" class="hole-card" hidden>
+          <div class="hole-head">
+            <strong id="hole-title">Hole 1</strong>
+            <span id="hole-meta" class="hint"></span>
+          </div>
+          <div class="hole-stats">
+            <div><span class="k">To pin</span><b id="to-pin">–</b></div>
+            <div><span class="k">Lie</span><b id="lie">Tee</b></div>
+            <div><span class="k">Stroke</span><b id="stroke-no">1</b></div>
+            <div><span class="k">Score</span><b id="round-score">E</b></div>
+          </div>
+          <canvas id="minimap" aria-label="Hole map – click to aim"></canvas>
+          <div class="aim-row">
+            <button id="aim-left" title="Aim left (A or ←)">◀ Aim</button>
+            <span class="hint">Click the map to aim</span>
+            <button id="aim-right" title="Aim right (D or →)">Aim ▶</button>
+          </div>
+          <p id="hole-msg" class="hole-msg" role="status"></p>
+          <div class="row">
+            <button id="prev-hole">◀ Hole</button>
+            <button id="restart-hole">Restart hole</button>
+            <button id="next-hole" class="primary">Next hole ▶</button>
+          </div>
+        </section>
         <h2>Last shot <small id="last-club"></small></h2>
         <div id="tiles" class="tiles"></div>
       </aside>
@@ -66,6 +94,7 @@
           <button data-tab="history" class="active">History</button>
           <button data-tab="stats">Club stats</button>
           <button data-tab="manual">Manual entry</button>
+          <button data-tab="course">Course</button>
           <button data-tab="camera">Camera</button>
           <button data-tab="device">Device / protocol</button>
           <button data-tab="settings">Conditions</button>
@@ -101,6 +130,24 @@
           </form>
         </div>
 
+        <div class="tab-panel" data-panel="course">
+          <form id="course-search" class="row">
+            <input id="course-q" type="search" placeholder="Course name and town, e.g. Torrey Pines San Diego" aria-label="Find a golf course" />
+            <button type="submit" class="primary">Find course</button>
+          </form>
+          <p id="course-status" class="msg" role="status"></p>
+          <div id="course-results" class="course-results"></div>
+          <div id="scorecard-wrap" hidden>
+            <h3 id="scorecard-title" class="sub-title"></h3>
+            <div class="table-scroll"><table id="scorecard"></table></div>
+          </div>
+          <p class="hint">
+            Hole layouts come from OpenStreetMap, where volunteers have mapped many courses tee to green. If a course
+            shows no holes, it hasn't been mapped yet, and anyone can add it at openstreetmap.org. Courses are played flat (no slopes).
+          </p>
+          <p class="hint">Imagery © Esri, Maxar, Earthstar Geographics · Course data © OpenStreetMap contributors (ODbL)</p>
+        </div>
+
         <div class="tab-panel" data-panel="camera">
           <p class="hint">
             Point a webcam at the hitting spot and drag a box around where the ball sits. The light turns green when a
@@ -125,6 +172,23 @@
               <p class="hint">Put a ball in the box, then click this to set the detection level automatically.</p>
               <label class="slider">Ball pixels needed <input id="cam-min" type="range" min="4" max="600" step="1" /></label>
               <label class="slider">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <fieldset class="putt-set">
+                <legend>Putting (camera looking down at the ball)</legend>
+                <label class="check"><input id="putt-on" type="checkbox" checked /> Measure putts with the camera when the putter (PT) is selected</label>
+                <label class="slider">Ball rolls toward the picture's
+                  <select id="putt-dir">
+                    <option value="up">Top</option>
+                    <option value="right">Right side</option>
+                    <option value="down">Bottom</option>
+                    <option value="left">Left side</option>
+                  </select>
+                </label>
+                <label class="check"><input id="putt-flip" type="checkbox" /> Picture is mirrored (swap left/right)</label>
+                <label class="slider">Putt speed correction <output id="putt-cal-out">100%</output>
+                  <input id="putt-cal" type="range" min="70" max="130" step="1" value="100" />
+                </label>
+                <p class="hint" id="putt-readout">Ball size: – (put a ball in the box)</p>
+              </fieldset>
               <label class="check"><input id="replay-on" type="checkbox" checked /> Record an impact replay of each shot</label>
               <label class="slider">Replay quality
                 <select id="replay-quality"></select>
@@ -176,6 +240,15 @@
               </select>
             </label>
             <label>Fairway firmness <input name="firmness" type="range" min="0" max="1" step="0.1" value="0.5" /></label>
+            <label>Green speed (Stimp)<input name="stimp" type="number" min="6" max="14" step="0.5" value="10" /></label>
+            <label>Gimme putts (course)
+              <select name="gimme">
+                <option value="0">Off – putt everything</option>
+                <option value="0.3">Inside 1 ft</option>
+                <option value="0.6">Inside 2 ft</option>
+                <option value="0.9">Inside 3 ft</option>
+              </select>
+            </label>
           </form>
           <p class="hint" id="env-summary"></p>
         </div>

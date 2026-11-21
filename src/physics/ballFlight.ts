@@ -37,6 +37,8 @@ export interface Environment {
   windDirectionDeg: number;
   /** Fairway firmness 0 (soft) – 1 (firm); affects bounce and roll */
   firmness: number;
+  /** Green speed (Stimpmeter, feet). Used for putts. */
+  stimp?: number;
 }
 
 export const DEFAULT_ENVIRONMENT: Environment = {
@@ -44,6 +46,7 @@ export const DEFAULT_ENVIRONMENT: Environment = {
   windSpeed: 0,
   windDirectionDeg: 0,
   firmness: 0.5,
+  stimp: 10,
 };
 
 export interface TrajectoryPoint {
