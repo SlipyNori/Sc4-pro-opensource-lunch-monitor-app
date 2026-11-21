@@ -69,11 +69,27 @@ export function practiceCourse(): Course {
     { kind: 'water', poly: [{ e: 372, n: 150 }, { e: 395, n: 160 }, { e: 400, n: 260 }, { e: 380, n: 320 }, { e: 362, n: 300 }, { e: 370, n: 220 }] },
   ];
 
+  // Woods framing each hole, and a tree row along hole 1's right side
+  const trees = {
+    woods: [
+      rect(-120, -20, -45, 260), // left of hole 1
+      rect(40, 40, 95, 300), // between holes 1 and 2
+      rect(-140, 260, -90, 420), // behind hole 1's green
+      rect(205, -10, 270, 220), // between holes 2 and 3
+      rect(370, -20, 440, 140), // right of hole 3's tee shot
+      rect(220, 300, 270, 520), // left of hole 3's second shot
+      rect(350, 340, 420, 520), // right of hole 3's green
+    ],
+    rows: [[{ e: 30, n: 40 }, { e: 34, n: 230 }]],
+    singles: [{ e: 130, n: 60 }, { e: 196, n: 130 }, { e: -20, n: 360 }],
+  };
+
   return {
     id: 'practice',
     name: 'Practice course (built in)',
     origin: { lat: 0, lon: 0 },
     holes: [h1, h2, h3],
     features,
+    trees,
   };
 }

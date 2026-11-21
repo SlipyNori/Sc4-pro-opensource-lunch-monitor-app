@@ -155,3 +155,47 @@ describe('built-in practice course', () => {
     expect(r.strokesThisHole).toBe(2);
   });
 });
+
+import { plantTrees } from '../src/course/treePlanting';
+
+describe('3D trees on courses', () => {
+  it('reads woods, tree rows and single trees from OpenStreetMap', () => {
+    const data: OverpassResponse = {
+      elements: [
+        ...FIXTURE.elements,
+        { type: 'way', id: 40, tags: { natural: 'wood' }, geometry: rect(-120, 50, -40, 250) },
+        { type: 'way', id: 41, tags: { natural: 'tree_row' }, geometry: [ll({ e: 30, n: 20 }), ll({ e: 30, n: 120 })] },
+        { type: 'node', id: 42, tags: { natural: 'tree' }, ...ll({ e: -30, n: 30 }) },
+      ],
+    };
+    const c = parseCourse(data, 'Test', 'way/1', ORIGIN);
+    expect(c.trees!.woods).toHaveLength(1);
+    expect(c.trees!.rows).toHaveLength(1);
+    expect(c.trees!.singles).toHaveLength(1);
+  });
+
+  it('plants trees in woods and rows but never on the fairway, green or water', () => {
+    const course = parseCourse(FIXTURE, 'Test', 'way/1', ORIGIN);
+    // a wood that overlaps the fairway (x −20…20) and the pond (x 25…120)
+    const woods = [[{ e: -60, n: 100 }, { e: 60, n: 100 }, { e: 60, n: 200 }, { e: -60, n: 200 }]];
+    const trees = plantTrees({ woods, rows: [], singles: [{ e: -40, n: 30 }, { e: 0, n: 340 }] }, course.features, { minE: -500, maxE: 500, minN: -500, maxN: 800 });
+    expect(trees.length).toBeGreaterThan(20);
+    for (const t of trees) expect(lieAt(t.p, course.features)).toBe('rough');
+    // the single tree on the green was skipped, the one in the rough kept
+    expect(trees.some((t) => t.p.e === -40 && t.p.n === 30)).toBe(true);
+    expect(trees.some((t) => t.p.e === 0 && t.p.n === 340)).toBe(false);
+  });
+
+  it('respects the area and the cap', () => {
+    const woods = [[{ e: -500, n: -500 }, { e: 500, n: -500 }, { e: 500, n: 500 }, { e: -500, n: 500 }]];
+    const trees = plantTrees({ woods, rows: [], singles: [] }, [], { minE: 0, maxE: 100, minN: 0, maxN: 100 }, { max: 50 });
+    expect(trees.length).toBe(50);
+    for (const t of trees) expect(t.p.e >= 0 && t.p.e <= 100 && t.p.n >= 0 && t.p.n <= 100).toBe(true);
+  });
+
+  it('the practice course has woods to plant', () => {
+    const c = practiceCourse();
+    const t = plantTrees(c.trees!, c.features, { minE: -200, maxE: 500, minN: -50, maxN: 560 });
+    expect(t.length).toBeGreaterThan(100);
+  });
+});

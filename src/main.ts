@@ -17,6 +17,8 @@ import { Round, LIE_EFFECT, scoreName } from './course/round';
 import { findCourses, loadCourse, searchPlaces, type Course, type CourseSummary } from './course/osm';
 import { buildFeatureImagery, buildImagery, type HoleImagery } from './course/satellite';
 import { practiceCourse } from './course/practiceCourse';
+import { plantTrees } from './course/treePlanting';
+import { Forest } from './render/trees';
 import { Minimap } from './course/Minimap';
 import { msToMph } from './physics/units';
 
@@ -752,6 +754,13 @@ async function loadHoleView() {
   }
   if (!round || round.holeIndex !== idx) return; // moved on while loading
   imageryForHole = imageryCache.get(idx) ?? null;
+  // 3D trees where the map has woods, tree rows or single trees; glossy water
+  const area = imageryForHole?.rect ?? { minE: -1e4, maxE: 1e4, minN: -1e4, maxN: 1e4 };
+  const planted = round.course.trees ? plantTrees(round.course.trees, round.course.features, area) : [];
+  scene.setCourseTrees(planted.length
+    ? new Forest(planted.map((t) => ({ x: t.p.e, z: -t.p.n, height: t.height, pick: t.pick, rot: t.rot })))
+    : null);
+  scene.setCourseWater(round.course.features.filter((f) => f.kind === 'water').map((f) => f.poly));
   if (imageryForHole) {
     scene.setSatellite(imageryForHole.canvas, imageryForHole.rect);
     if (imageryForHole.failed) $('#hole-msg').textContent = `${imageryForHole.failed} map tiles didn't load.`;
