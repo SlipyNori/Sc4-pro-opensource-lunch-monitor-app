@@ -17,6 +17,15 @@ export class BluetoothDevice extends BaseAdapter {
 
   /** If true, show every nearby BLE device in the chooser instead of filtering by name. */
   acceptAllDevices = false;
+  /**
+   * SC4 Pro sends a shot in parts and waits for each to be acknowledged (the
+   * app writes the same bytes back). When on, the app does that automatically.
+   */
+  autoAck = true;
+  private lastAckHex = '';
+  private lastAckAt = 0;
+  private shotParts: { part: number; values?: number[]; loft?: number; club?: number; time?: string }[] = [];
+  private shotTimer: ReturnType<typeof setTimeout> | null = null;
   private device: BluetoothDevice_ | null = null;
   private chars: BluetoothRemoteGATTCharacteristic[] = [];
   /** Characteristics we can write commands to */
@@ -143,8 +152,9 @@ export class BluetoothDevice extends BaseAdapter {
     const info = describeSc4Frame(bytes);
     if (info && charUuid.startsWith('50340003')) {
       this.emit('log', `    ↳ ${info.summary}`);
-      if (info.type === 'Ss' && info.checksumOk) {
-        this.emit('shotEvent', `SC4 Pro registered shot #${info.shotNumber}${info.loftDeg ? ` · loft ${info.loftDeg}°` : ''}`);
+      if (info.type === 'Ss' && info.checksumOk && info.part) {
+        this.collectPart(info);
+        this.acknowledge(hex);
       }
     }
     this.emit('packet', charUuid, hex);
@@ -192,6 +202,40 @@ export class BluetoothDevice extends BaseAdapter {
     this.handlers.clear();
     this.chars = [];
     this.writable = [];
+  }
+
+  /** Write the frame back so the device sends the next part (with loop guards). */
+  private acknowledge(hex: string) {
+    if (!this.autoAck) return;
+    const now = Date.now();
+    if (hex === this.lastAckHex && now - this.lastAckAt < 3000) return; // never ack the same frame twice in a row
+    if (this.shotParts.length >= 16) return; // safety cap
+    this.lastAckHex = hex;
+    this.lastAckAt = now;
+    setTimeout(() => {
+      this.sendHex(hex).catch((e) => this.emit('log', `Couldn't acknowledge: ${(e as Error).message}`));
+    }, 40);
+  }
+
+  /** Gather the parts of one shot; when they stop arriving, log everything together. */
+  private collectPart(info: ReturnType<typeof describeSc4Frame> & object) {
+    if (info.part === 1) {
+      this.shotParts = [];
+      this.emit('shotEvent', `SC4 Pro registered a shot${info.loftDeg ? ` · loft ${info.loftDeg}°` : ''}`);
+    }
+    this.shotParts.push({ part: info.part!, values: info.values, loft: info.loftDeg, club: info.clubCode, time: info.time });
+    if (this.shotTimer) clearTimeout(this.shotTimer);
+    this.shotTimer = setTimeout(() => this.finishShot(), 1500);
+  }
+
+  private finishShot() {
+    const parts = this.shotParts.sort((a, b) => a.part - b.part);
+    if (!parts.length) return;
+    const head = parts.find((p) => p.part === 1);
+    const values = parts.filter((p) => p.values).map((p) => `p${p.part}: ${p.values!.join(', ')}`);
+    this.emit('log', `★ Shot complete · ${parts.length} part${parts.length > 1 ? 's' : ''}${head ? ` · club ${head.club} · loft ${head.loft}° · ${head.time ?? ''}` : ''}`);
+    if (values.length) this.emit('log', `★ Values · ${values.join(' | ')}`);
+    this.shotParts = [];
   }
 
   /** Hex of the latest data-channel packet (for the acknowledge experiment) */

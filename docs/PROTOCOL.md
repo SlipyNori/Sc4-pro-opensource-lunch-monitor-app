@@ -33,7 +33,13 @@ The device screen for that shot: Practice · **SW/56.0°** · shot **1** · carr
 | 17–18 | `00 45` | unknown |
 | 19 | `BC` | checksum: all 20 bytes sum to 0 (mod 256), confirmed |
 
-None of the shot's measurements (40.8, 45.3, 31.1, 16.3, 6.8, −0.7, 1.11) appear in this frame in any common encoding, and no other frame arrived. So this is a header, and the results probably follow only after the app acknowledges it. Experiment: send the same frame back on the command channel (`50340002`) and watch for more frames.
+None of the shot's measurements appear in this first frame. **The device sends a shot in parts and waits for each part to be acknowledged:** writing the same 20 bytes back to the command channel (`50340002`) makes it send the next part straight away. Bytes 2–4 are therefore the **part number**, not a shot number. OpenSC4 now acknowledges automatically (Device tab checkbox).
+
+### Part 2 (released by acknowledging part 1)
+
+`53 73 00 00 02 52 F8 77 44 00 00 00 42 93 B9 4C 41 00 45 D3`: three float32 little-endian values, **991.88 · 32.0 · 12.795**. Which measurement each is still needs matching against the device screen for the same shot. More parts are expected (a shot has 8+ values).
+
+The device clock runs about 24 s behind the phone's clock in these captures, so the timestamp in part 1 isn't a delivery delay.
 
 20 bytes is the payload limit of one default BLE notification, so a full shot may span several frames. Next step: more frames, each paired with the numbers the device's screen showed (the Device tab now has a form for that).
 

@@ -902,6 +902,13 @@ $('#log-copy').addEventListener('click', async () => {
     $('#label-msg').textContent = 'Copy was blocked. The log is selected; use your browser’s Copy.';
   }
 });
+const autoAck = $<HTMLInputElement>('#auto-ack');
+autoAck.checked = loadJson<boolean>('open-sc4.autoAck', true);
+ble.autoAck = autoAck.checked;
+autoAck.addEventListener('change', () => {
+  ble.autoAck = autoAck.checked;
+  saveJson('open-sc4.autoAck', autoAck.checked);
+});
 $('#echo-last').addEventListener('click', () => {
   const hex = ble.lastDataHex();
   if (!hex) return appendLog('No SC4 Pro message yet. Hit a shot that registers first.');

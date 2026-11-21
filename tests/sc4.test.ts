@@ -15,13 +15,21 @@ describe('SC4 Pro frames', () => {
 
   // The device screen for this shot: Practice · SW/56.0° · shot 1 · carry 31.1 yd ·
   // swing 40.8 mph · ball 45.3 mph · smash 1.11 · launch 16.3° · dir −0.7° · apex 6.8 ft
-  it('reads the shot header: type, shot number, clock, club and loft', () => {
+  it('reads the shot header: type, part 1, clock, club and loft', () => {
     const d = describeSc4Frame(REAL)!;
     expect(d.type).toBe('Ss');
-    expect(d.shotNumber).toBe(1);
+    expect(d.part).toBe(1);
     expect(d.time).toBe('2026-11-20 22:39:12');
     expect(d.clubCode).toBe(20);
     expect(d.loftDeg).toBe(56);
+  });
+
+  // Sent by the device straight after the app echoed part 1 back (acknowledge)
+  it('reads part 2 as three float values', () => {
+    const d = describeSc4Frame(hexToBytes('53 73 00 00 02 52 F8 77 44 00 00 00 42 93 B9 4C 41 00 45 D3'))!;
+    expect(d.checksumOk).toBe(true);
+    expect(d.part).toBe(2);
+    expect(d.values).toEqual([991.88, 32, 12.795]);
   });
 
   it('ignores frames that are not SC4 messages', () => {
