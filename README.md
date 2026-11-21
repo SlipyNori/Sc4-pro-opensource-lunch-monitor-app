@@ -31,6 +31,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # unit tests (physics, decoder, session)
 npm run build      # static site in dist/ – host anywhere (GitHub Pages, Netlify, …)
+npm run build:single  # one self-contained dist/opensc4-range.html you can open from disk
 ```
 
 Web Bluetooth needs **Chrome or Edge on desktop or Android**, served over `https://` or `localhost`. Safari/iOS and Firefox don't support it, but they can still use the simulator, manual entry and CSV.
