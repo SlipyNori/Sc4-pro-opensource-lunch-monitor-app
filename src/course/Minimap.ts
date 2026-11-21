@@ -136,7 +136,9 @@ export class Minimap {
     // Attribution
     g.font = `${9 * dpr}px system-ui, sans-serif`;
     g.fillStyle = 'rgba(0,0,0,0.55)';
-    const text = imagery ? 'Imagery © Esri · Map data © OpenStreetMap' : 'Map data © OpenStreetMap';
+    const text = round.course.id === 'practice'
+      ? 'Practice course'
+      : imagery?.total ? 'Imagery © Esri · Map data © OpenStreetMap' : 'Map data © OpenStreetMap';
     const tw = g.measureText(text).width;
     g.fillRect(c.width - tw - 8 * dpr, c.height - 14 * dpr, tw + 8 * dpr, 14 * dpr);
     g.fillStyle = '#ffffff';

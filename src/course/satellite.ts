@@ -22,6 +22,8 @@ export interface HoleImagery {
   zoom: number;
   /** Tiles that failed to load (shown as plain green) */
   failed: number;
+  /** Tiles requested (0 for a drawn map) */
+  total: number;
 }
 
 function loadTile(url: string): Promise<HTMLImageElement | null> {
@@ -69,5 +71,71 @@ export async function buildImagery(origin: LatLon, rect: ENRect, maxPx = 2048, m
       }
     }),
   );
-  return { canvas, rect, zoom: z, failed };
+  return { canvas, rect, zoom: z, failed, total: jobs.length };
+}
+
+const FEATURE_STYLE: Record<string, string> = {
+  fairway: '#78b552',
+  tee: '#86c463',
+  green: '#93d96f',
+  bunker: '#e9dcb0',
+  water: '#3f7fb5',
+};
+
+/**
+ * A drawn map of the hole from its mapped features (no internet needed).
+ * Used for the built-in course, and when satellite tiles can't be loaded.
+ */
+export function buildFeatureImagery(
+  features: { kind: string; poly: { e: number; n: number }[] }[],
+  rect: ENRect,
+  metresPerPx = 0.4,
+): HoleImagery {
+  const w = rect.maxE - rect.minE;
+  const h = rect.maxN - rect.minN;
+  const s = Math.max(metresPerPx, Math.max(w, h) / 2048);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w / s);
+  canvas.height = Math.ceil(h / s);
+  const g = canvas.getContext('2d')!;
+  // Rough: mottled dark green
+  g.fillStyle = '#4f7f3c';
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  let seed = 9;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 1500; i++) {
+    g.fillStyle = r() > 0.5 ? 'rgba(30,60,25,0.12)' : 'rgba(110,150,80,0.1)';
+    g.beginPath();
+    g.arc(r() * canvas.width, r() * canvas.height, 3 + r() * 14, 0, Math.PI * 2);
+    g.fill();
+  }
+  const toPx = (p: { e: number; n: number }) => [(p.e - rect.minE) / s, (rect.maxN - p.n) / s] as const;
+  const order = ['fairway', 'tee', 'water', 'green', 'bunker'];
+  for (const kind of order) {
+    for (const f of features.filter((x) => x.kind === kind)) {
+      g.beginPath();
+      f.poly.forEach((p, i) => {
+        const [x, y] = toPx(p);
+        if (i) g.lineTo(x, y);
+        else g.moveTo(x, y);
+      });
+      g.closePath();
+      g.fillStyle = FEATURE_STYLE[kind];
+      g.fill();
+      if (kind === 'fairway') {
+        // mowing stripes
+        g.save();
+        g.clip();
+        g.fillStyle = 'rgba(255,255,255,0.07)';
+        for (let y = 0; y < canvas.height; y += 24 / s * 0.5) g.fillRect(0, y, canvas.width, 6 / s);
+        g.restore();
+      }
+      if (kind === 'water' || kind === 'bunker' || kind === 'green') {
+        g.lineWidth = Math.max(1, (kind === 'green' ? 2.5 : 1.5) / s);
+        g.strokeStyle = kind === 'water' ? '#2b5f8c' : kind === 'green' ? '#6fb553' : '#c9b984';
+        g.stroke();
+      }
+    }
+  }
+  return { canvas, rect, zoom: 0, failed: 0, total: 0 };
 }

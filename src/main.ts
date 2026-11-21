@@ -15,7 +15,8 @@ import { REPLAY_QUALITIES, ReplayRecorder, releaseClip, type ReplayClip } from '
 import { ReplayPlayer } from './camera/ReplayPlayer';
 import { Round, LIE_EFFECT, scoreName } from './course/round';
 import { findCourses, loadCourse, searchPlaces, type Course, type CourseSummary } from './course/osm';
-import { buildImagery, type HoleImagery } from './course/satellite';
+import { buildFeatureImagery, buildImagery, type HoleImagery } from './course/satellite';
+import { practiceCourse } from './course/practiceCourse';
 import { Minimap } from './course/Minimap';
 import { msToMph } from './physics/units';
 
@@ -642,36 +643,58 @@ $<HTMLFormElement>('#course-search').addEventListener('submit', async (e) => {
   if (!q) return;
   const box = $('#course-results');
   box.innerHTML = '';
-  courseStatus('Searching…');
+  courseStatus('Searching for the place…');
+  let places;
   try {
-    const places = await searchPlaces(q.toLowerCase().includes('golf') ? q : `${q} golf`);
-    if (!places.length) return courseStatus('No places found. Try the course name plus the town or state.');
-    // Prefer results that are golf courses; look for mapped courses around the best match
-    const best = places.find((p) => p.isGolfCourse) ?? places[0];
-    courseStatus(`Looking for golf courses near ${best.name}…`);
-    const courses = await findCourses(best.lat, best.lon);
-    if (!courses.length) return courseStatus(`No golf courses are mapped near ${best.label}.`);
-    courseStatus(`${courses.length} course${courses.length > 1 ? 's' : ''} found. Pick one to load its holes.`);
-    box.innerHTML = '';
-    for (const c of courses.slice(0, 8)) {
-      const btn = document.createElement('button');
-      btn.innerHTML = `<strong></strong><small></small>`;
-      btn.querySelector('strong')!.textContent = c.name;
-      btn.querySelector('small')!.textContent = `${c.center.lat.toFixed(4)}, ${c.center.lon.toFixed(4)}`;
-      btn.addEventListener('click', () => startCourse(c));
-      box.appendChild(btn);
-    }
+    places = await searchPlaces(q.toLowerCase().includes('golf') ? q : `${q} golf`);
   } catch (err) {
-    courseStatus(`Search failed: ${(err as Error).message}`);
+    return courseStatus(`Place search didn't work: ${(err as Error).message}. Check your internet connection.`);
   }
+  if (!places.length) return courseStatus('No places found. Try the course name plus the town or state, e.g. "Torrey Pines San Diego".');
+
+  // Golf courses the place search found directly can be loaded straight away
+  const found = new Map<string, CourseSummary>();
+  for (const p of places) if (p.course) found.set(p.course.id, p.course);
+  const best = places.find((p) => p.isGolfCourse) ?? places[0];
+  showCourses(found, `Looking for more courses near ${best.name}…`);
+
+  try {
+    const nearby = await findCourses(best.lat, best.lon, 4000, (host) => courseStatus(`Looking for courses near ${best.name} (asking ${host})…`));
+    for (const c of nearby) if (!found.has(c.id)) found.set(c.id, c);
+    if (!found.size) return courseStatus(`No golf courses are mapped near ${best.label}. Try another name, or play the practice course.`);
+    showCourses(found, `${found.size} course${found.size > 1 ? 's' : ''} found. Pick one to load its holes.`);
+  } catch (err) {
+    if (found.size) showCourses(found, `Found ${found.size} course${found.size > 1 ? 's' : ''} by name (couldn't search nearby: ${(err as Error).message}). Pick one to load its holes.`);
+    else courseStatus(`Couldn't search for courses: ${(err as Error).message}`);
+  }
+});
+
+function showCourses(found: Map<string, CourseSummary>, status: string) {
+  courseStatus(status);
+  const box = $('#course-results');
+  box.innerHTML = '';
+  for (const c of [...found.values()].slice(0, 10)) {
+    const btn = document.createElement('button');
+    btn.innerHTML = `<strong></strong><small></small>`;
+    btn.querySelector('strong')!.textContent = c.name;
+    btn.querySelector('small')!.textContent = `${c.center.lat.toFixed(4)}, ${c.center.lon.toFixed(4)}`;
+    btn.addEventListener('click', () => startCourse(c));
+    box.appendChild(btn);
+  }
+}
+
+$('#practice-course').addEventListener('click', () => {
+  beginRound(practiceCourse());
+  courseStatus('Practice course loaded: 3 holes.');
+  $('#course-results').innerHTML = '';
 });
 
 async function startCourse(summary: CourseSummary) {
   courseStatus(`Loading ${summary.name}…`);
   try {
-    const course = await loadCourse(summary);
+    const course = await loadCourse(summary, (host) => courseStatus(`Loading ${summary.name} (asking ${host})…`));
     if (!course.holes.length) {
-      return courseStatus(`${summary.name} is on the map, but its holes haven't been mapped in OpenStreetMap yet. Try another course.`);
+      return courseStatus(`${summary.name} is on the map, but its holes haven't been mapped in OpenStreetMap yet. Try another course, or play the practice course.`);
     }
     beginRound(course);
     courseStatus(`${course.name}: ${course.holes.length} holes loaded.`);
@@ -696,17 +719,24 @@ async function loadHoleView() {
   const h = round.hole;
   syncCourseView();
   if (!imageryCache.has(idx)) {
-    $('#hole-msg').textContent = 'Loading satellite view…';
+    $('#hole-msg').textContent = round.course.id === 'practice' ? '' : 'Loading satellite view…';
     const pts = [...h.path, h.pin];
     const m = 80;
     const rect = {
       minE: Math.min(...pts.map((p) => p.e)) - m, maxE: Math.max(...pts.map((p) => p.e)) + m,
       minN: Math.min(...pts.map((p) => p.n)) - m, maxN: Math.max(...pts.map((p) => p.n)) + m,
     };
-    try {
-      imageryCache.set(idx, await buildImagery(round.course.origin, rect));
-    } catch {
-      imageryCache.set(idx, null);
+    const drawn = () => buildFeatureImagery(round!.course.features, rect);
+    if (round.course.id === 'practice') {
+      imageryCache.set(idx, drawn());
+    } else {
+      try {
+        const sat = await buildImagery(round.course.origin, rect);
+        // If most tiles failed (offline or blocked), show the drawn course map instead
+        imageryCache.set(idx, sat.total && sat.failed / sat.total > 0.5 ? drawn() : sat);
+      } catch {
+        imageryCache.set(idx, drawn());
+      }
     }
     $('#hole-msg').textContent = '';
   }

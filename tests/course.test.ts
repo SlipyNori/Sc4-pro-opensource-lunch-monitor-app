@@ -133,3 +133,25 @@ describe('camera putt measurement', () => {
     expect(lane.y + lane.h).toBeCloseTo(0.8);
   });
 });
+
+import { practiceCourse } from '../src/course/practiceCourse';
+
+describe('built-in practice course', () => {
+  const course = practiceCourse();
+  it('has three playable holes with sensible pars and lengths', () => {
+    expect(course.holes.map((h) => h.par)).toEqual([4, 3, 5]);
+    for (const h of course.holes) {
+      expect(lieAt(h.tee, course.features)).toBe('tee');
+      expect(lieAt(h.pin, course.features)).toBe('green');
+    }
+    expect(course.holes[2].lengthM).toBeGreaterThan(430);
+  });
+
+  it('hole 2 plays over water', () => {
+    const r = new Round(course);
+    r.startHole(1);
+    const topped = r.play({ ballSpeedMph: 75, launchAngleDeg: 8, spinRpm: 3000, launchDirectionDeg: 0, spinAxisDeg: 0 }, '7i');
+    expect(topped.lie).toBe('water');
+    expect(r.strokesThisHole).toBe(2);
+  });
+});

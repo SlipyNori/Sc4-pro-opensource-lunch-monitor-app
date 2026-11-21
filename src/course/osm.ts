@@ -45,6 +45,8 @@ export interface PlaceResult {
   lat: number;
   lon: number;
   isGolfCourse: boolean;
+  /** For golf courses found by the place search: enough to load it directly */
+  course?: CourseSummary;
 }
 
 export interface CourseSummary {
@@ -58,8 +60,23 @@ const PHOTON = 'https://photon.komoot.io/api/';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
+
+/** fetch with a time limit, so a slow server can't leave the search hanging */
+async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 25000): Promise<Response> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } catch (e) {
+    throw new Error(ctl.signal.aborted ? 'timed out' : (e as Error).message || 'network error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ---------------- Network ----------------
 
@@ -70,25 +87,35 @@ export const OVERPASS_ENDPOINTS = [
  */
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   try {
-    const res = await fetch(`${PHOTON}?limit=8&q=${encodeURIComponent(query)}`);
+    const res = await fetchWithTimeout(`${PHOTON}?limit=10&q=${encodeURIComponent(query)}`, {}, 15000);
     if (!res.ok) throw new Error(String(res.status));
     const data = (await res.json()) as {
-      features: { geometry: { coordinates: [number, number] }; properties: Record<string, string | undefined> }[];
+      features: {
+        geometry: { coordinates: [number, number] };
+        properties: Record<string, string | number | number[] | undefined>;
+      }[];
     };
     return data.features.map((f) => {
-      const p = f.properties;
+      const p = f.properties as Record<string, string | undefined> & { extent?: number[]; osm_id?: number };
       const where = [p.city, p.state, p.country].filter(Boolean).join(', ');
-      return {
-        name: p.name ?? where,
-        label: [p.name, where].filter(Boolean).join(' – '),
-        lat: f.geometry.coordinates[1],
-        lon: f.geometry.coordinates[0],
-        isGolfCourse: p.osm_key === 'leisure' && p.osm_value === 'golf_course',
-      };
+      const isGolfCourse = p.osm_key === 'leisure' && p.osm_value === 'golf_course';
+      const lat = f.geometry.coordinates[1];
+      const lon = f.geometry.coordinates[0];
+      // Photon gives a golf course's extent as [minLon, maxLat, maxLon, minLat]
+      const ext = p.extent;
+      const course: CourseSummary | undefined = isGolfCourse && ext && ext.length === 4
+        ? {
+            id: `${p.osm_type === 'R' ? 'relation' : 'way'}/${p.osm_id}`,
+            name: p.name ?? 'Golf course',
+            center: { lat, lon },
+            bounds: { minlon: ext[0], maxlat: ext[1], maxlon: ext[2], minlat: ext[3] },
+          }
+        : undefined;
+      return { name: p.name ?? where, label: [p.name, where].filter(Boolean).join(' – '), lat, lon, isGolfCourse, course };
     });
   } catch {
     const url = `${NOMINATIM}?format=jsonv2&limit=8&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 15000);
     if (!res.ok) throw new Error(`Place search failed (${res.status})`);
     const rows = (await res.json()) as { name: string; display_name: string; lat: string; lon: string; category?: string; type?: string }[];
     return rows.map((r) => ({
@@ -101,31 +128,34 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   }
 }
 
-export async function overpass(query: string): Promise<OverpassResponse> {
-  let lastErr: unknown;
+/** Query OpenStreetMap course data, trying each public Overpass server in turn. */
+export async function overpass(query: string, onTry?: (host: string) => void): Promise<OverpassResponse> {
+  const errors: string[] = [];
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    const host = new URL(endpoint).host;
+    onTry?.(host);
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
-      });
-      if (!res.ok) throw new Error(`Overpass ${res.status}`);
+      }, 30000);
+      if (!res.ok) throw new Error(res.status === 429 ? 'busy (429)' : `error ${res.status}`);
       return (await res.json()) as OverpassResponse;
     } catch (e) {
-      lastErr = e;
+      errors.push(`${host}: ${(e as Error).message}`);
     }
   }
-  throw new Error(`Course data server unavailable (${(lastErr as Error)?.message ?? 'network error'}). Try again in a minute.`);
+  throw new Error(`no course-data server answered (${errors.join('; ')}). Check your internet connection, or try again in a minute.`);
 }
 
 /** Golf courses within `radiusM` of a point, nearest first */
-export async function findCourses(lat: number, lon: number, radiusM = 4000): Promise<CourseSummary[]> {
+export async function findCourses(lat: number, lon: number, radiusM = 4000, onTry?: (host: string) => void): Promise<CourseSummary[]> {
   const q = `[out:json][timeout:25];
 (way["leisure"="golf_course"](around:${radiusM},${lat},${lon});
  relation["leisure"="golf_course"](around:${radiusM},${lat},${lon}););
 out tags center bb;`;
-  const data = await overpass(q);
+  const data = await overpass(q, onTry);
   return data.elements
     .filter((e) => e.bounds && e.center)
     .map((e) => ({
@@ -138,7 +168,7 @@ out tags center bb;`;
 }
 
 /** Download and parse every golf feature inside a course's bounding box */
-export async function loadCourse(summary: CourseSummary): Promise<Course> {
+export async function loadCourse(summary: CourseSummary, onTry?: (host: string) => void): Promise<Course> {
   const pad = 0.0015; // ~150 m
   const b = summary.bounds;
   const bbox = `${b.minlat - pad},${b.minlon - pad},${b.maxlat + pad},${b.maxlon + pad}`;
@@ -149,7 +179,7 @@ export async function loadCourse(summary: CourseSummary): Promise<Course> {
  way["natural"="water"](${bbox});
  relation["natural"="water"](${bbox}););
 out geom;`;
-  const data = await overpass(q);
+  const data = await overpass(q, onTry);
   return parseCourse(data, summary.name, summary.id, summary.center);
 }
 
