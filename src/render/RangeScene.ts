@@ -1,0 +1,515 @@
+import * as THREE from 'three';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import type { FlightResult, TrajectoryPoint } from '../physics/ballFlight';
+import { ydToM } from '../physics/units';
+import { flagstick, golfBall, grassTexture, treeLine, yardageSign } from './assets';
+
+export type CameraMode = 'behind' | 'follow' | 'top';
+/** high: shadows + depth of field · medium: shadows · low: neither (for slower computers) */
+export type Quality = 'high' | 'medium' | 'low';
+
+/** Course coordinates in metres (east, north) */
+export interface EN {
+  e: number;
+  n: number;
+}
+
+/** Course (east, height, north) → three.js (x = east, y = up, z = −north) */
+const enToThree = (e: number, y: number, n: number) => new THREE.Vector3(e, y, -n);
+
+/** Drawn ball radius. A real ball is 2.1 cm; this is enlarged so it reads on screen. */
+const BALL_R = 0.16;
+const TRACER_COLOR = 0xffc93c;
+
+interface Tracer {
+  line: Line2;
+  marker: THREE.Mesh;
+}
+
+/**
+ * 3D driving range and course view.
+ * Late-afternoon light: physical sky, filmic tone mapping, soft sun shadows that
+ * follow the ball, and an optional depth-of-field pass focused on the ball.
+ */
+export class RangeScene {
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera: THREE.PerspectiveCamera;
+  private composer: EffectComposer;
+  private bokeh: BokehPass;
+  private sun: THREE.DirectionalLight;
+  private sunDir = new THREE.Vector3();
+  private ball: THREE.Mesh;
+  private ballGlow: THREE.Sprite;
+  private tracers: Tracer[] = [];
+  private anim: { pts: TrajectoryPoint[]; positions: number[]; start: number; duration: number; line: Line2; marker: THREE.Mesh } | null = null;
+  private cameraMode: CameraMode = 'behind';
+  private quality: Quality = 'high';
+  /** Range decorations (hidden on a course) */
+  private rangeGroup = new THREE.Group();
+  /** Course: satellite ground and flag */
+  private courseGroup = new THREE.Group();
+  private satellite: THREE.Mesh | null = null;
+  private satelliteShadow: THREE.Mesh | null = null;
+  private flag: ReturnType<typeof flagstick>;
+  private rangeFlags: ReturnType<typeof flagstick>[] = [];
+  private mode: 'range' | 'course' = 'range';
+  /** Where the next shot starts and which way it's aimed (course metres) */
+  private origin: EN = { e: 0, n: 0 };
+  private aim: EN = { e: 0, n: 1 };
+  private target: EN | null = null;
+  private onAnimDone: (() => void) | null = null;
+  private disposed = false;
+  private resizeObserver: ResizeObserver;
+  private clock = new THREE.Clock();
+  private maxAniso: number;
+  /** Playback speed multiplier for the ball animation */
+  speed = 1;
+
+  constructor(private container: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.7;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(this.renderer.domElement);
+    this.maxAniso = this.renderer.capabilities.getMaxAnisotropy();
+
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.2, 12000);
+
+    // ---- Sky, sun and atmosphere (late afternoon, sun behind-left of the golfer) ----
+    const sky = new Sky();
+    sky.scale.setScalar(10000);
+    const u = sky.material.uniforms;
+    u.turbidity.value = 4;
+    u.rayleigh.value = 1.4;
+    u.mieCoefficient.value = 0.004;
+    u.mieDirectionalG.value = 0.82;
+    this.sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 24), THREE.MathUtils.degToRad(215));
+    u.sunPosition.value.copy(this.sunDir);
+    this.scene.add(sky);
+
+    // Image-based lighting from the sky, so the ball's clear coat reflects it
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envScene = new THREE.Scene();
+    envScene.add(sky.clone());
+    this.scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
+    pmrem.dispose();
+
+    this.scene.fog = new THREE.Fog(0xc4d6e0, 260, 1400);
+
+    this.scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x40603a, 0.55));
+    this.sun = new THREE.DirectionalLight(0xffe7c4, 2.6);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const sc = this.sun.shadow.camera;
+    sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 400;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.02;
+    this.scene.add(this.sun, this.sun.target);
+
+    this.scene.add(this.rangeGroup, this.courseGroup);
+    this.buildRange();
+
+    // ---- Course mode ground ----
+    this.flag = flagstick(2.4);
+    const beacon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.2, 0.2, 30, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: TRACER_COLOR, transparent: true, opacity: 0.22, depthWrite: false, fog: false }),
+    );
+    beacon.position.y = 15;
+    this.flag.add(beacon);
+    const base = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), this.grassMaterial(0x93b27c, 1500));
+    base.rotation.x = -Math.PI / 2;
+    base.position.y = -0.05;
+    base.receiveShadow = true;
+    this.courseGroup.add(base, this.flag);
+    this.courseGroup.visible = false;
+
+    // ---- Ball ----
+    this.ball = golfBall(BALL_R);
+    this.ball.position.set(0, BALL_R, 0);
+    this.scene.add(this.ball);
+    // A soft glow so the ball stays visible far away in flight
+    this.ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.ballGlow.visible = false;
+    this.scene.add(this.ballGlow);
+
+    // ---- Post-processing: depth of field focused on the ball ----
+    const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
+    this.composer = new EffectComposer(this.renderer, rt);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bokeh = new BokehPass(this.scene, this.camera, { focus: 10, aperture: 0.00012, maxblur: 0.006 });
+    this.composer.addPass(this.bokeh);
+    this.composer.addPass(new OutputPass());
+
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(container);
+    this.resize();
+    this.setCameraMode('behind');
+    this.loop();
+  }
+
+  private grassMaterial(color: number, repeat: number) {
+    const map = grassTexture(this.maxAniso);
+    map.repeat.set(repeat, repeat);
+    return new THREE.MeshStandardMaterial({ map, color, roughness: 0.95 });
+  }
+
+  private buildRange() {
+    const grass = grassTexture(this.maxAniso);
+
+    // Rough beyond the range
+    const roughMap = grass.clone();
+    roughMap.repeat.set(220, 260);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1400), new THREE.MeshStandardMaterial({ map: roughMap, color: 0x8aa274, roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.z = -500;
+    ground.receiveShadow = true;
+    this.rangeGroup.add(ground);
+
+    // Mown fairway: alternating light/dark bands, as the mower runs toward and away from the tee
+    const bandLen = 12.5;
+    for (let i = -1; i < 30; i++) {
+      const map = grass.clone();
+      map.repeat.set(16, 3);
+      const stripe = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, bandLen),
+        new THREE.MeshStandardMaterial({ map, color: i % 2 ? 0xe2f7c4 : 0xa9cf8a, roughness: 0.9 }),
+      );
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(0, 0.01, -i * bandLen - bandLen / 2 + 2);
+      stripe.receiveShadow = true;
+      this.rangeGroup.add(stripe);
+    }
+
+    // Hitting mat and tee markers
+    const mat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.03, 1.6), new THREE.MeshStandardMaterial({ color: 0x2f6e3a, roughness: 1 }));
+    mat.position.set(0, 0.015, 0);
+    mat.receiveShadow = true;
+    this.rangeGroup.add(mat);
+    for (const x of [-2.6, 2.6]) {
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), new THREE.MeshStandardMaterial({ color: 0x1b5fbf, roughness: 0.4 }));
+      marker.position.set(x, 0.07, -0.6);
+      marker.castShadow = true;
+      this.rangeGroup.add(marker);
+    }
+
+    // Yardage lines and signs every 50 yd
+    for (let yd = 50; yd <= 350; yd += 50) {
+      const z = -ydToM(yd);
+      const line = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 0.35),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }),
+      );
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(0, 0.03, z);
+      this.rangeGroup.add(line);
+      for (const x of [-44, 44]) {
+        const sign = yardageSign(String(yd));
+        sign.position.set(x, 0, z);
+        sign.lookAt(0, 0, 30); // face back toward the tee
+        this.rangeGroup.add(sign);
+      }
+    }
+
+    // Target greens with a fringe and a flag
+    for (const [yd, x] of [[75, -12], [125, 10], [175, -6], [225, 14], [275, 0]] as const) {
+      const z = -ydToM(yd);
+      const fringe = new THREE.Mesh(new THREE.CircleGeometry(10.5, 48), new THREE.MeshStandardMaterial({ color: 0x5e9a45, roughness: 0.9 }));
+      fringe.rotation.x = -Math.PI / 2;
+      fringe.position.set(x, 0.035, z);
+      fringe.receiveShadow = true;
+      const greenMap = grass.clone();
+      greenMap.repeat.set(6, 6);
+      const green = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ map: greenMap, color: 0xd2f0b8, roughness: 0.6 }));
+      green.rotation.x = -Math.PI / 2;
+      green.position.set(x, 0.045, z);
+      green.receiveShadow = true;
+      const flag = flagstick(3);
+      flag.position.set(x, 0.05, z);
+      this.rangeFlags.push(flag);
+      this.rangeGroup.add(fringe, green, flag);
+    }
+
+    // Tree lines down both sides and across the back give the eye depth cues
+    const r = seeded(3);
+    const trees: { x: number; z: number; s: number }[] = [];
+    for (let z = -20; z > -480; z -= 9 + r() * 6) {
+      trees.push({ x: -62 - r() * 18, z, s: 0.8 + r() * 0.7 });
+      trees.push({ x: 62 + r() * 18, z: z - 4, s: 0.8 + r() * 0.7 });
+    }
+    for (let x = -80; x <= 80; x += 8 + r() * 6) trees.push({ x, z: -470 - r() * 25, s: 1 + r() * 0.8 });
+    this.rangeGroup.add(treeLine(trees));
+  }
+
+  // ---------------- Quality ----------------
+
+  setQuality(q: Quality) {
+    this.quality = q;
+    this.renderer.shadowMap.enabled = q !== 'low';
+    this.sun.castShadow = q !== 'low';
+    this.renderer.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio, 2));
+    // Materials must recompile when shadows are switched
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
+    });
+    this.resize();
+  }
+
+  // ---------------- Course mode ----------------
+
+  setMode(mode: 'range' | 'course') {
+    this.mode = mode;
+    this.rangeGroup.visible = mode === 'range';
+    this.courseGroup.visible = mode === 'course';
+    this.clearTracers();
+    if (mode === 'range') {
+      this.origin = { e: 0, n: 0 };
+      this.aim = { e: 0, n: 1 };
+      this.target = null;
+      this.ball.position.set(0, BALL_R, 0);
+    }
+    this.placeStaticCamera();
+  }
+
+  /** Lay a north-up satellite image flat over the given east/north rectangle (metres). */
+  setSatellite(canvas: HTMLCanvasElement, rect: { minE: number; maxE: number; minN: number; maxN: number }) {
+    for (const m of [this.satellite, this.satelliteShadow]) {
+      if (!m) continue;
+      this.courseGroup.remove(m);
+      m.geometry.dispose();
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.map?.dispose();
+      mat.dispose();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = this.maxAniso;
+    const w = rect.maxE - rect.minE;
+    const h = rect.maxN - rect.minN;
+    const geo = new THREE.PlaneGeometry(w, h);
+    // The photo already contains real sunlight, so draw it as-is (no extra lighting or tone mapping)
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.copy(enToThree(rect.minE + w / 2, 0, rect.minN + h / 2));
+    // ...but still let the ball and flag cast soft shadows onto it
+    const shadow = new THREE.Mesh(geo.clone(), new THREE.ShadowMaterial({ opacity: 0.35 }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.copy(mesh.position).setY(0.02);
+    shadow.receiveShadow = true;
+    this.satellite = mesh;
+    this.satelliteShadow = shadow;
+    this.courseGroup.add(mesh, shadow);
+  }
+
+  setPin(p: EN) {
+    this.flag.position.copy(enToThree(p.e, 0.03, p.n));
+  }
+
+  /** Put the ball at a course position and aim (unit vector); the camera follows. */
+  setBall(p: EN, aim: EN, target?: EN) {
+    this.origin = { ...p };
+    this.aim = { ...aim };
+    this.target = target ?? null;
+    this.ball.position.copy(enToThree(p.e, BALL_R, p.n));
+    if (!this.anim) this.placeStaticCamera();
+  }
+
+  /** Shot frame (x downrange, z right) → three.js, using the current ball position and aim */
+  private toThree(p: TrajectoryPoint) {
+    const a = this.aim;
+    const r = { e: a.n, n: -a.e };
+    return enToThree(this.origin.e + a.e * p.x + r.e * p.z, p.y, this.origin.n + a.n * p.x + r.n * p.z);
+  }
+
+  setCameraMode(mode: CameraMode) {
+    this.cameraMode = mode;
+    if (!this.anim) this.placeStaticCamera();
+  }
+
+  private placeStaticCamera(target?: THREE.Vector3) {
+    const ball = enToThree(this.origin.e, 0, this.origin.n);
+    const fwd = new THREE.Vector3(this.aim.e, 0, -this.aim.n).normalize();
+    if (this.cameraMode === 'top') {
+      // Look down over the ball and where it's going
+      const far = target
+        ?? (this.target ? enToThree(this.target.e, 0, this.target.n) : ball.clone().addScaledVector(fwd, this.mode === 'course' ? 200 : 220));
+      const mid = ball.clone().lerp(far, 0.5);
+      const span = Math.max(80, ball.distanceTo(far));
+      this.camera.position.copy(mid).add(new THREE.Vector3(0, span * 1.15, 0)).addScaledVector(fwd, -1);
+      this.camera.lookAt(mid);
+    } else if (this.mode === 'course') {
+      // Higher on a course so the satellite ground reads clearly down the hole
+      this.camera.position.copy(ball).addScaledVector(fwd, -16).setY(9);
+      this.camera.lookAt(ball.clone().addScaledVector(fwd, 120));
+    } else {
+      // Eye height, standing a few paces behind the ball
+      this.camera.position.copy(ball).addScaledVector(fwd, -5.5).setY(1.7);
+      this.camera.lookAt(ball.clone().addScaledVector(fwd, 150).setY(3));
+    }
+  }
+
+  /** Animate a new shot. Previous tracers fade and are kept (up to 10). */
+  playShot(result: FlightResult, onDone?: () => void) {
+    if (this.anim) this.finishAnim();
+    for (const t of this.tracers) {
+      (t.line.material as LineMaterial).opacity *= 0.5;
+      (t.marker.material as THREE.MeshBasicMaterial).opacity *= 0.5;
+    }
+    while (this.tracers.length >= 10) {
+      const old = this.tracers.shift()!;
+      this.scene.remove(old.line, old.marker);
+      old.line.geometry.dispose();
+    }
+
+    const pts = [...result.flight, ...result.ground];
+    const positions: number[] = [];
+    for (const p of pts) {
+      const v = this.toThree(p);
+      positions.push(v.x, v.y + 0.02, v.z);
+    }
+    if (positions.length < 6) positions.push(...positions.slice(0, 3)); // Line2 needs 2+ points
+    const geom = new LineGeometry();
+    geom.setPositions(positions);
+    geom.instanceCount = 0;
+    const material = new LineMaterial({ color: TRACER_COLOR, linewidth: 3.5, transparent: true, opacity: 1, worldUnits: false });
+    material.resolution.set(this.container.clientWidth, this.container.clientHeight);
+    const line = new Line2(geom, material);
+    line.frustumCulled = false;
+    const marker = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 1.1, 32),
+      new THREE.MeshBasicMaterial({ color: TRACER_COLOR, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    marker.rotation.x = -Math.PI / 2;
+    const end = this.toThree(pts[pts.length - 1]);
+    marker.position.set(end.x, 0.07, end.z);
+    this.scene.add(line, marker);
+
+    const duration = pts[pts.length - 1].t - pts[0].t;
+    this.anim = { pts, positions, start: performance.now(), duration, line, marker };
+    this.onAnimDone = onDone ?? null;
+  }
+
+  private finishAnim() {
+    if (!this.anim) return;
+    const { line, marker, pts } = this.anim;
+    line.geometry.instanceCount = Infinity;
+    (marker.material as THREE.MeshBasicMaterial).opacity = 0.9;
+    this.ball.position.copy(this.toThree(pts[pts.length - 1])).setY(BALL_R);
+    this.ballGlow.visible = false;
+    this.tracers.push({ line, marker });
+    this.anim = null;
+    const done = this.onAnimDone;
+    this.onAnimDone = null;
+    done?.();
+  }
+
+  clearTracers() {
+    for (const t of this.tracers) this.scene.remove(t.line, t.marker);
+    this.tracers = [];
+    this.ball.position.copy(enToThree(this.origin.e, BALL_R, this.origin.n));
+    this.placeStaticCamera();
+  }
+
+  private loop = () => {
+    if (this.disposed) return;
+    requestAnimationFrame(this.loop);
+    const t = this.clock.getElapsedTime();
+    if (this.anim) {
+      const { pts, start, duration, line } = this.anim;
+      const elapsed = ((performance.now() - start) / 1000) * this.speed;
+      const tNow = pts[0].t + elapsed;
+      let i = pts.findIndex((p) => p.t > tNow);
+      if (i === -1) i = pts.length;
+      line.geometry.instanceCount = Math.max(0, i - 1);
+      const p = this.toThree(pts[Math.min(i, pts.length - 1)]);
+      this.ball.position.set(p.x, p.y + BALL_R, p.z);
+      this.ball.rotation.x -= 0.6; // backspin
+      // Glow grows with distance so the ball never shrinks to nothing
+      const d = this.camera.position.distanceTo(this.ball.position);
+      this.ballGlow.visible = d > 25;
+      this.ballGlow.position.copy(this.ball.position);
+      this.ballGlow.scale.setScalar(Math.min(6, d * 0.012));
+      if (this.cameraMode === 'follow') {
+        const fwd = new THREE.Vector3(this.aim.e, 0, -this.aim.n).normalize();
+        const want = p.clone().addScaledVector(fwd, -35).setY(p.y + 8);
+        this.camera.position.lerp(want, 0.08);
+        this.camera.lookAt(p.clone().addScaledVector(fwd, 20));
+      } else if (this.cameraMode === 'top') {
+        this.placeStaticCamera(this.toThree(pts[pts.length - 1]));
+      }
+      if (elapsed >= duration) {
+        this.finishAnim();
+        if (this.cameraMode !== 'follow') this.placeStaticCamera(p);
+      }
+    }
+
+    for (const f of this.rangeFlags) f.wave(t);
+    this.flag.wave(t);
+
+    // Keep the shadow camera centred on the ball so shadows stay sharp where you look
+    const focusPt = this.ball.position;
+    this.sun.target.position.copy(focusPt);
+    this.sun.position.copy(focusPt).addScaledVector(this.sunDir, 200);
+
+    if (this.quality === 'high' && this.cameraMode !== 'top') {
+      // Focus on the ball; nearby ground and the far distance soften like a camera lens
+      const u = this.bokeh.uniforms as Record<string, THREE.IUniform>;
+      const want = this.camera.position.distanceTo(focusPt);
+      u.focus.value += (want - u.focus.value) * 0.15;
+      // Gentler on a course: the satellite detail down the hole matters for aiming
+      u.aperture.value = this.mode === 'course' ? 0.00003 : 0.00012;
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
+  };
+
+  private resize() {
+    const w = this.container.clientWidth || 1;
+    const h = this.container.clientHeight || 1;
+    this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    for (const t of this.tracers) (t.line.material as LineMaterial).resolution.set(w, h);
+    if (this.anim) (this.anim.line.material as LineMaterial).resolution.set(w, h);
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.resizeObserver.disconnect();
+    this.composer.dispose();
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
+  }
+}
+
+function seeded(seed: number) {
+  return () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+}
+
+function glowTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,240,200,0.6)');
+  grd.addColorStop(1, 'rgba(255,220,150,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}

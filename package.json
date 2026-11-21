@@ -1,0 +1,28 @@
+{
+  "name": "open-sc4-launch-monitor",
+  "version": "0.1.0",
+  "description": "Open-source launch monitor dashboard and golf simulator for the Swing Caddie SC4 Pro (unofficial).",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:single": "npm run build && node scripts/build-single.mjs",
+    "deploy:pages": "bash scripts/deploy-pages.sh",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "calibrate": "vite-node scripts/calibrate.ts"
+  },
+  "dependencies": {
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.169.0",
+    "@types/web-bluetooth": "0.0.20",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "vitest": "2.1.8"
+  }
+}

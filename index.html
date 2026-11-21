@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenSC4 Range</title>
+    <meta name="description" content="Open-source launch monitor dashboard and golf simulator for the Swing Caddie SC4 Pro (unofficial)." />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <meta name="theme-color" content="#163b24" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">⛳ OpenSC4 <span>Range</span></div>
+      <div class="mode-toggle" role="group" aria-label="Mode">
+        <button data-mode="range" class="active" aria-pressed="true">Range</button>
+        <button data-mode="course" aria-pressed="false">Course</button>
+      </div>
+      <div class="controls">
+        <label>Device
+          <select id="device-select"></select>
+        </label>
+        <button id="connect-btn" class="primary">Connect</button>
+        <span id="status" class="status status-disconnected">Disconnected</span>
+        <span id="activity" class="activity" hidden title="Data received from the device"><span class="dot"></span><span id="activity-text"></span></span>
+        <label>Club
+          <select id="club-select"></select>
+        </label>
+        <button id="hit-btn" title="Simulator: hit a shot (Space)">Hit ▶</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="range-wrap">
+        <div id="range" class="range"></div>
+        <div id="replay" class="replay" hidden>
+          <div class="replay-head">
+            <span id="replay-label">Impact replay</span>
+            <span class="replay-buttons">
+              <button id="replay-play" title="Play again">↻</button>
+              <button id="replay-speed" title="Playback speed">½×</button>
+              <button id="replay-close" title="Close replay" aria-label="Close replay">✕</button>
+            </span>
+          </div>
+          <canvas id="replay-canvas" aria-label="Impact replay"></canvas>
+          <input id="replay-scrub" type="range" min="0" max="0" value="0" aria-label="Step through replay frames" />
+        </div>
+        <div id="ready-lamp" class="ready-lamp" data-state="off" role="status" aria-live="polite">
+          <span class="lamp"></span>
+          <span class="lamp-text">
+            <strong id="ready-title">Not connected</strong>
+            <small id="ready-detail">Connect a device to start</small>
+          </span>
+        </div>
+        <div class="range-toolbar">
+          <select id="camera-select" aria-label="Camera">
+            <option value="behind">Behind golfer</option>
+            <option value="follow">Follow ball</option>
+            <option value="top">Top-down</option>
+          </select>
+          <select id="quality-select" aria-label="Graphics quality" title="Graphics quality">
+            <option value="high">Graphics: High</option>
+            <option value="medium">Graphics: Medium</option>
+            <option value="low">Graphics: Low</option>
+          </select>
+          <button id="clear-tracers">Clear tracers</button>
+        </div>
+      </section>
+
+      <aside class="shot-panel">
+        <section id="hole-card" class="hole-card" hidden>
+          <div class="hole-head">
+            <strong id="hole-title">Hole 1</strong>
+            <span id="hole-meta" class="hint"></span>
+          </div>
+          <div class="hole-stats">
+            <div><span class="k">To pin</span><b id="to-pin">–</b></div>
+            <div><span class="k">Lie</span><b id="lie">Tee</b></div>
+            <div><span class="k">Stroke</span><b id="stroke-no">1</b></div>
+            <div><span class="k">Score</span><b id="round-score">E</b></div>
+          </div>
+          <canvas id="minimap" aria-label="Hole map – click to aim"></canvas>
+          <div class="aim-row">
+            <button id="aim-left" title="Aim left (A or ←)">◀ Aim</button>
+            <span class="hint">Click the map to aim</span>
+            <button id="aim-right" title="Aim right (D or →)">Aim ▶</button>
+          </div>
+          <p id="hole-msg" class="hole-msg" role="status"></p>
+          <div class="row">
+            <button id="prev-hole">◀ Hole</button>
+            <button id="restart-hole">Restart hole</button>
+            <button id="next-hole" class="primary">Next hole ▶</button>
+          </div>
+        </section>
+        <h2>Last shot <small id="last-club"></small></h2>
+        <div id="tiles" class="tiles"></div>
+      </aside>
+
+      <section class="tabs">
+        <nav class="tab-bar" role="tablist">
+          <button data-tab="history" class="active">History</button>
+          <button data-tab="stats">Club stats</button>
+          <button data-tab="manual">Manual entry</button>
+          <button data-tab="course">Course</button>
+          <button data-tab="camera">Camera</button>
+          <button data-tab="device">Device / protocol</button>
+          <button data-tab="settings">Conditions</button>
+        </nav>
+
+        <div class="tab-panel active" data-panel="history">
+          <div class="row">
+            <button id="export-csv">Export CSV</button>
+            <label class="file-btn">Import CSV<input id="import-csv" type="file" accept=".csv,text/csv" hidden /></label>
+            <button id="copy-csv">Copy CSV</button>
+            <button id="clear-history" class="danger">Clear history</button>
+            <span id="history-msg" class="msg" role="status"></span>
+          </div>
+          <div class="table-scroll"><table id="history-table"></table></div>
+        </div>
+
+        <div class="tab-panel" data-panel="stats">
+          <div class="table-scroll"><table id="stats-table"></table></div>
+        </div>
+
+        <div class="tab-panel" data-panel="manual">
+          <p class="hint">Type numbers from the SC4 Pro display or app. Only ball speed is required – anything blank is estimated for the selected club.</p>
+          <form id="manual-form" class="form-grid">
+            <label>Ball speed (mph)*<input name="ballSpeedMph" type="number" step="0.1" required /></label>
+            <label>Club speed (mph)<input name="clubSpeedMph" type="number" step="0.1" /></label>
+            <label>Launch angle (°)<input name="launchAngleDeg" type="number" step="0.1" /></label>
+            <label>Launch direction (°, + right)<input name="launchDirectionDeg" type="number" step="0.1" /></label>
+            <label>Spin (rpm)<input name="spinRpm" type="number" step="1" /></label>
+            <label>Spin axis (°, + right)<input name="spinAxisDeg" type="number" step="0.1" /></label>
+            <label>Device carry (yd)<input name="deviceCarryYd" type="number" step="0.1" /></label>
+            <label>Device total (yd)<input name="deviceTotalYd" type="number" step="0.1" /></label>
+            <button type="submit" class="primary">Add shot</button>
+          </form>
+        </div>
+
+        <div class="tab-panel" data-panel="course">
+          <form id="course-search" class="row">
+            <input id="course-q" type="search" placeholder="Course name and town, e.g. Torrey Pines San Diego" aria-label="Find a golf course" />
+            <button type="submit" class="primary">Find course</button>
+          </form>
+          <p class="row practice-row">
+            <button id="practice-course">Play the practice course</button>
+            <span class="hint">Three built-in holes. Works without the internet, good for testing.</span>
+          </p>
+          <p id="course-status" class="msg" role="status"></p>
+          <div id="course-results" class="course-results"></div>
+          <div id="scorecard-wrap" hidden>
+            <h3 id="scorecard-title" class="sub-title"></h3>
+            <div class="table-scroll"><table id="scorecard"></table></div>
+          </div>
+          <p class="hint">
+            Hole layouts come from OpenStreetMap, where volunteers have mapped many courses tee to green. If a course
+            shows no holes, it hasn't been mapped yet, and anyone can add it at openstreetmap.org. Courses are played flat (no slopes).
+          </p>
+          <p class="hint">Imagery © Esri, Maxar, Earthstar Geographics · Course data © OpenStreetMap contributors (ODbL)</p>
+        </div>
+
+        <div class="tab-panel" data-panel="camera">
+          <p class="hint">
+            Point a webcam at the hitting spot and drag a box around where the ball sits. The light turns green when a
+            ball is sitting still in the box and the radar is connected. When the ball suddenly leaves the box, that counts as a hit.
+            The webcam only checks setup; the numbers still come from the radar.
+          </p>
+          <div class="camera-grid">
+            <div class="camera-view">
+              <canvas id="camera-canvas" aria-label="Camera preview – drag to draw the ball box"></canvas>
+              <p class="hint">Drag on the picture to redraw the ball box. Blue dots show what the camera thinks is ball.</p>
+            </div>
+            <div class="camera-controls">
+              <div class="row">
+                <select id="webcam-select" aria-label="Webcam"><option value="">Default camera</option></select>
+                <button id="camera-toggle" class="primary">Start camera</button>
+              </div>
+              <div class="readout">
+                <div><span class="k">Ball</span> <strong id="cam-state">Camera off</strong></div>
+                <div><span class="k">Ball pixels</span> <strong id="cam-count">0</strong> <span class="k">need</span> <strong id="cam-need">25</strong></div>
+              </div>
+              <button id="cam-calibrate">Set up from ball in box</button>
+              <p class="hint">Put a ball in the box, then click this to set the detection level automatically.</p>
+              <label class="slider">Ball pixels needed <input id="cam-min" type="range" min="4" max="600" step="1" /></label>
+              <div class="ball-look">
+                <span id="ball-swatch" class="swatch" aria-hidden="true"></span>
+                <span><strong id="ball-kind">White ball</strong><br /><small class="hint">Set from the ball in the box. Works with white, yellow, orange, red or pink balls on most floors.</small></span>
+              </div>
+              <label class="slider" id="bright-row">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <label class="slider" id="tol-row" hidden>Colour match tolerance <input id="cam-tol" type="range" min="10" max="120" step="1" /></label>
+              <fieldset class="putt-set">
+                <legend>Putting (camera looking down at the ball)</legend>
+                <label class="check"><input id="putt-on" type="checkbox" checked /> Measure putts with the camera when the putter (PT) is selected</label>
+                <label class="slider">Ball rolls toward the picture's
+                  <select id="putt-dir">
+                    <option value="up">Top</option>
+                    <option value="right">Right side</option>
+                    <option value="down">Bottom</option>
+                    <option value="left">Left side</option>
+                  </select>
+                </label>
+                <label class="check"><input id="putt-flip" type="checkbox" /> Picture is mirrored (swap left/right)</label>
+                <label class="slider">Putt speed correction <output id="putt-cal-out">100%</output>
+                  <input id="putt-cal" type="range" min="70" max="130" step="1" value="100" />
+                </label>
+                <p class="hint" id="putt-readout">Ball size: – (put a ball in the box)</p>
+              </fieldset>
+              <label class="check"><input id="replay-on" type="checkbox" checked /> Record an impact replay of each shot</label>
+              <label class="slider">Replay quality
+                <select id="replay-quality"></select>
+              </label>
+              <label class="check"><input id="cam-sim" type="checkbox" checked /> When using the Simulator, a camera-detected hit fires a simulated shot</label>
+              <span id="cam-msg" class="msg" role="status"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-panel="device">
+          <p class="hint">
+            The SC4 Pro's Bluetooth protocol isn't published. The Bluetooth adapter connects using the profile below,
+            subscribes to every notifying characteristic, and logs raw packets. Once the byte layout is known, fill in
+            <code>fields</code> and shots will decode automatically. See <code>docs/PROTOCOL.md</code>.
+          </p>
+          <div class="device-grid">
+            <div>
+              <label class="check"><input id="accept-all" type="checkbox" /> Show all nearby Bluetooth devices</label>
+              <textarea id="profile-json" spellcheck="false" rows="16"></textarea>
+              <div class="row">
+                <button id="profile-save">Apply profile</button>
+                <button id="profile-reset">Reset to SC4 Pro default</button>
+                <span id="profile-msg" class="hint"></span>
+              </div>
+            </div>
+            <div>
+              <div class="row">
+                <strong>Packet log</strong>
+                <button id="log-export">Download capture (JSON)</button>
+                <button id="log-clear">Clear</button>
+              </div>
+              <pre id="log" class="log"></pre>
+              <form id="send-form" class="row send-row">
+                <input id="send-hex" placeholder="Bytes to send, in hex (e.g. 01 00)" aria-label="Bytes to send to the device" spellcheck="false" />
+                <button type="submit">Send to device</button>
+              </form>
+              <label class="check"><input id="auto-ack" type="checkbox" checked /> Acknowledge SC4 Pro messages automatically (it sends each shot in parts, and waits for the app to send each part back)</label>
+              <div class="row">
+                <button id="echo-last" type="button">Load last SC4 message to send back</button>
+                <span class="hint">Acknowledge experiment: fills the box with the SC4 Pro's last message. Check it, then tap Send.</span>
+              </div>
+              <form id="label-form" class="label-form">
+                <strong>What did the SC4 Pro screen show for the last hit?</strong>
+                <p class="hint">Fill in what you can, right after a hit. It's saved with the latest SC4 Pro message, which is how the data gets decoded.</p>
+                <div class="form-grid">
+                  <label>Swing (club) mph<input name="clubSpeedMph" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Ball mph<input name="ballSpeedMph" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Smash factor<input name="smash" type="number" step="0.01" inputmode="decimal" /></label>
+                  <label>Carry (yd)<input name="carryYd" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Launch angle (°)<input name="launchAngleDeg" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Launch direction (°, + = R)<input name="launchDirectionDeg" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Spin (rpm)<input name="spinRpm" type="number" step="1" inputmode="numeric" /></label>
+                  <label>Apex (ft)<input name="apexFt" type="number" step="0.1" inputmode="decimal" /></label>
+                </div>
+                <div class="row">
+                  <button type="submit" class="primary">Save with last message</button>
+                  <button type="button" id="log-copy">Copy capture</button>
+                  <span id="label-msg" class="msg" role="status"></span>
+                </div>
+              </form>
+              <p class="hint">For protocol research: sends raw bytes to the SC4 Pro's command channel. Only send bytes you've seen the official app send; unknown commands could change device settings.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-panel="settings">
+          <form id="env-form" class="form-grid">
+            <label>Altitude (ft)<input name="altitudeFt" type="number" step="100" value="0" /></label>
+            <label>Temperature (°F)<input name="tempF" type="number" step="1" value="70" /></label>
+            <label>Wind speed (mph)<input name="windMph" type="number" step="1" value="0" /></label>
+            <label>Wind direction
+              <select name="windDir">
+                <option value="0">Tailwind</option>
+                <option value="180">Headwind</option>
+                <option value="90">Left → right</option>
+                <option value="270">Right → left</option>
+              </select>
+            </label>
+            <label>Fairway firmness <input name="firmness" type="range" min="0" max="1" step="0.1" value="0.5" /></label>
+            <label>Green speed (Stimp)<input name="stimp" type="number" min="6" max="14" step="0.5" value="10" /></label>
+            <label>Gimme putts (course)
+              <select name="gimme">
+                <option value="0">Off – putt everything</option>
+                <option value="0.3">Inside 1 ft</option>
+                <option value="0.6">Inside 2 ft</option>
+                <option value="0.9">Inside 3 ft</option>
+              </select>
+            </label>
+          </form>
+          <p class="hint" id="env-summary"></p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

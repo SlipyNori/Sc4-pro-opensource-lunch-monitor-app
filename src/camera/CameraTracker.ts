@@ -1,0 +1,321 @@
+import {
+  BallPresence,
+  countBallPixels,
+  DEFAULT_PIXEL_OPTIONS,
+  isBallPixel,
+  learnBall,
+  type LearnedBall,
+  type BallEvent,
+  type BallState,
+  type PixelCount,
+  type PixelOptions,
+  type Zone,
+} from './ballDetection';
+import { laneZone, measurePutt, type LaneSample, type PuttDirection, type PuttMeasurement } from './puttTracking';
+
+export interface PuttSettings {
+  /** Measure putts with the camera (overhead camera) */
+  enabled: boolean;
+  /** Direction the ball rolls in the picture */
+  direction: PuttDirection;
+  /** Mirror left/right (some cameras flip the picture) */
+  flip: boolean;
+  /** Speed correction factor, 1 = none */
+  calibration: number;
+}
+
+export interface CameraSettings {
+  deviceId?: string;
+  zone: Zone;
+  pixels: PixelOptions;
+  minPixels: number;
+  putt: PuttSettings;
+}
+
+export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
+  zone: { x: 0.42, y: 0.6, w: 0.16, h: 0.2 },
+  pixels: { ...DEFAULT_PIXEL_OPTIONS },
+  minPixels: 40,
+  putt: { enabled: true, direction: 'up', flip: false, calibration: 1 },
+};
+
+/** Analysis resolution: small enough to be cheap, big enough to measure a ball's size for putts. */
+const W = 480;
+const H = 360;
+
+/**
+ * Runs the webcam, analyses ~15 frames/s inside the zone, draws the preview
+ * overlay, and reports ball state changes.
+ */
+export class CameraTracker {
+  readonly video = document.createElement('video');
+  private stream: MediaStream | null = null;
+  private work = document.createElement('canvas');
+  private ctx: CanvasRenderingContext2D;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private presence: BallPresence;
+  last: PixelCount = { count: 0 };
+  /** When the ball was last seen in the box (performance.now ms): the best estimate of impact time */
+  lastBallSeenAt = 0;
+  /** Same moment on the camera's frame clock (used to line up putt samples) */
+  private lastBallSeenFrameT = 0;
+  onEvent: (e: BallEvent) => void = () => {};
+  onFrame: () => void = () => {};
+  /** Called with a measured putt (only when putt tracking is on) */
+  onPutt: (m: PuttMeasurement) => void = () => {};
+  /** Putt tracking: recent lane samples, where the ball rested, its size in pixels */
+  private lane: LaneSample[] = [];
+  private rest: { x: number; y: number; d: number } | null = null;
+  private lastTrack: { x: number; y: number }[] = [];
+  private lastImg: ImageData | null = null;
+  /** When true, analyse at 30 fps instead of 15 (putting needs it) */
+  fast = false;
+
+  constructor(public settings: CameraSettings, private overlay: HTMLCanvasElement) {
+    this.video.muted = true;
+    this.video.playsInline = true;
+    this.work.width = W;
+    this.work.height = H;
+    this.ctx = this.work.getContext('2d', { willReadFrequently: true })!;
+    this.presence = new BallPresence();
+    this.presence.opts.minPixels = settings.minPixels;
+  }
+
+  get running() {
+    return !!this.stream;
+  }
+
+  get state(): BallState {
+    return this.presence.state;
+  }
+
+  static async listCameras(): Promise<MediaDeviceInfo[]> {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  }
+
+  async start() {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser can’t use a camera here. Open the app in Chrome or Edge.');
+    this.stop();
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: this.settings.deviceId ? { exact: this.settings.deviceId } : undefined,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 },
+      },
+      audio: false,
+    });
+    this.video.srcObject = this.stream;
+    await this.video.play();
+    this.presence = new BallPresence({ ...this.presence.opts, minPixels: this.settings.minPixels });
+    this.restartTimer();
+  }
+
+  /** Use 30 fps analysis while putt tracking is on, 15 fps otherwise. */
+  setFast(fast: boolean) {
+    this.fast = fast;
+    if (this.running) this.restartTimer();
+  }
+
+  private restartTimer() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.rvfcActive = false;
+    const v = this.video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+    };
+    if (typeof v.requestVideoFrameCallback === 'function') {
+      // Analyse real camera frames and use each frame's own timestamp: much more
+      // accurate for measuring putt speed than timer-based sampling.
+      this.rvfcActive = true;
+      const loop = (_now: number, meta: { mediaTime: number }) => {
+        if (!this.stream || !this.rvfcActive) return;
+        const t = meta.mediaTime * 1000;
+        if (t - this.lastFrameT >= (this.fast ? 30 : 62) || t < this.lastFrameT) {
+          this.lastFrameT = t;
+          this.tick(t);
+        }
+        v.requestVideoFrameCallback!(loop);
+      };
+      v.requestVideoFrameCallback(loop);
+      // keep a cheap timer only so stop() has something to clear
+      this.timer = setInterval(() => {}, 60_000);
+    } else {
+      this.timer = setInterval(() => this.tick(), this.fast ? 33 : 66);
+    }
+  }
+  private rvfcActive = false;
+  private lastFrameT = -Infinity;
+
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.rvfcActive = false;
+    this.lastFrameT = -Infinity;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+    this.video.srcObject = null;
+    this.presence.state = 'empty';
+    this.last = { count: 0 };
+    this.draw();
+  }
+
+  setMinPixels(n: number) {
+    this.settings.minPixels = n;
+    this.presence.opts.minPixels = n;
+  }
+
+  /** `frameT`: the frame's capture time in ms if known (camera clock), else now */
+  private tick(frameT?: number) {
+    if (this.video.readyState < 2) return;
+    this.ctx.drawImage(this.video, 0, 0, W, H);
+    const img = this.ctx.getImageData(0, 0, W, H);
+    this.lastImg = img;
+    const now = frameT ?? performance.now();
+    this.last = countBallPixels(img.data, W, H, this.settings.zone, this.settings.pixels);
+    if (this.last.count >= this.settings.minPixels) {
+      this.lastBallSeenFrameT = now;
+      this.lastBallSeenAt = performance.now();
+    }
+    if (this.settings.putt.enabled) this.trackLane(img, now);
+    const ev = this.presence.update(this.last, now);
+    if (ev) {
+      this.onEvent(ev);
+      if (this.settings.putt.enabled && (ev === 'hit' || ev === 'removed')) {
+        const since = this.lastBallSeenFrameT - 80;
+        // Give the ball time to roll through the lane, then measure
+        setTimeout(() => this.finishPutt(since), 450);
+      }
+    }
+    this.draw(img);
+    this.onFrame();
+  }
+
+  private trackLane(img: ImageData, now: number) {
+    const lane = laneZone(this.settings.zone, this.settings.putt.direction);
+    const px = countBallPixels(img.data, W, H, lane, this.settings.pixels);
+    this.lane.push({ t: now, count: px.count, x: px.cx !== undefined ? px.cx * W : undefined, y: px.cy !== undefined ? px.cy * H : undefined });
+    while (this.lane.length && now - this.lane[0].t > 2500) this.lane.shift();
+    // While the ball sits ready, remember where it is and how big it looks
+    if (this.presence.state === 'ready' && this.last.box && this.last.cx !== undefined) {
+      const b = this.last.box;
+      const d = Math.max(b.x1 - b.x0, b.y1 - b.y0) + 1;
+      const x = this.last.cx * W, y = this.last.cy! * H;
+      this.rest = this.rest ? { x: this.rest.x * 0.8 + x * 0.2, y: this.rest.y * 0.8 + y * 0.2, d: this.rest.d * 0.8 + d * 0.2 } : { x, y, d };
+    }
+  }
+
+  private finishPutt(sinceT: number) {
+    if (!this.rest) return;
+    const p = this.settings.putt;
+    const samples = this.lane.filter((s) => s.t >= sinceT);
+    const m = measurePutt(samples, this.rest, this.rest.d, p.direction, {
+      flip: p.flip,
+      minCount: Math.max(3, Math.round(this.settings.minPixels * 0.25)),
+      calibration: p.calibration,
+    });
+    this.lastTrack = samples.filter((s) => s.x !== undefined).map((s) => ({ x: s.x! / W, y: s.y! / H }));
+    if (m) this.onPutt(m);
+  }
+
+  /** Learn the ball's look (white or a colour) from the current frame. Applies it if found. */
+  learnBall(): LearnedBall | null {
+    if (!this.lastImg) return null;
+    const res = learnBall(this.lastImg.data, W, H, this.settings.zone, this.settings.pixels);
+    if (res) {
+      this.settings.pixels = res.pixels;
+      this.setMinPixels(Math.max(4, Math.round(res.count * 0.5)));
+    }
+    return res;
+  }
+
+  /** Ball size in camera pixels while it sits in the box (for the readout) */
+  get restDiameterPx() {
+    return this.rest?.d;
+  }
+
+  /** Draw the preview: video frame, zone box coloured by state, ball pixels highlighted. */
+  draw(img?: ImageData) {
+    const c = this.overlay;
+    const g = c.getContext('2d')!;
+    const cw = (c.width = c.clientWidth * devicePixelRatio || W);
+    const ch = (c.height = c.clientHeight * devicePixelRatio || H);
+    g.fillStyle = '#0a0f0c';
+    g.fillRect(0, 0, cw, ch);
+    if (this.running && this.video.readyState >= 2) {
+      g.drawImage(this.video, 0, 0, cw, ch);
+    } else {
+      g.fillStyle = '#94a69a';
+      g.font = `${14 * devicePixelRatio}px system-ui, sans-serif`;
+      g.textAlign = 'center';
+      g.fillText('Camera off', cw / 2, ch / 2);
+    }
+    // Highlight detected ball pixels inside the zone
+    if (img) {
+      const { x, y, w, h } = this.settings.zone;
+      const x0 = Math.floor(x * W), y0 = Math.floor(y * H), x1 = Math.ceil((x + w) * W), y1 = Math.ceil((y + h) * H);
+      g.fillStyle = 'rgba(79, 179, 255, 0.85)';
+      const sx = cw / W, sy = ch / H;
+      const opts = this.settings.pixels;
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const i = (py * W + px) * 4;
+          if (isBallPixel(img.data[i], img.data[i + 1], img.data[i + 2], opts)) g.fillRect(px * sx, py * sy, sx, sy);
+        }
+      }
+    }
+    // Putting lane and the last tracked roll
+    if (this.settings.putt.enabled) {
+      const l = laneZone(this.settings.zone, this.settings.putt.direction);
+      g.strokeStyle = 'rgba(255,255,255,0.35)';
+      g.lineWidth = 1.5 * devicePixelRatio;
+      g.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
+      g.strokeRect(l.x * cw, l.y * ch, l.w * cw, l.h * ch);
+      g.setLineDash([]);
+      g.fillStyle = '#ffdd33';
+      for (const p of this.lastTrack) {
+        g.beginPath();
+        g.arc(p.x * cw, p.y * ch, 3 * devicePixelRatio, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    const colors: Record<BallState, string> = {
+      empty: '#f2b84b', settling: '#f2b84b', ready: '#3ddc5c', cooldown: '#4fb3ff',
+    };
+    const z = this.settings.zone;
+    g.lineWidth = 3 * devicePixelRatio;
+    g.strokeStyle = colors[this.presence.state];
+    g.setLineDash(this.presence.state === 'ready' ? [] : [8 * devicePixelRatio, 6 * devicePixelRatio]);
+    g.strokeRect(z.x * cw, z.y * ch, z.w * cw, z.h * ch);
+    g.setLineDash([]);
+  }
+
+  /** Let the user drag a new zone on the preview. */
+  enableZoneDrawing(onChange: (z: Zone) => void) {
+    const c = this.overlay;
+    let start: { x: number; y: number } | null = null;
+    const pos = (e: PointerEvent) => {
+      const r = c.getBoundingClientRect();
+      return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
+    };
+    c.addEventListener('pointerdown', (e) => {
+      start = pos(e);
+      c.setPointerCapture(e.pointerId);
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!start) return;
+      const p = pos(e);
+      this.settings.zone = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) };
+      if (!this.running) this.draw();
+    });
+    c.addEventListener('pointerup', () => {
+      if (!start) return;
+      start = null;
+      const z = this.settings.zone;
+      if (z.w < 0.02 || z.h < 0.02) this.settings.zone = { ...DEFAULT_CAMERA_SETTINGS.zone };
+      onChange(this.settings.zone);
+      this.draw();
+    });
+  }
+}
