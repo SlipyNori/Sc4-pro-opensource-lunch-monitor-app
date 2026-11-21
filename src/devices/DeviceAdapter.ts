@@ -11,6 +11,8 @@ export interface DeviceEvents {
   packet: (source: string, hex: string) => void;
   /** The device reported that it is (or isn't) armed and ready to measure */
   readiness: (state: DeviceReadiness) => void;
+  /** The device registered a shot (e.g. an SC4 Pro "Ss" header), before any numbers are decoded */
+  shotEvent: (summary: string) => void;
 }
 
 /**

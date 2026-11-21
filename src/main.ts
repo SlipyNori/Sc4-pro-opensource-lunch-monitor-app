@@ -54,6 +54,10 @@ for (const d of devices) {
     renderStatus(detail);
   });
   d.on('log', (line) => appendLog(line));
+  d.on('shotEvent', (summary) => {
+    if (d !== active) return;
+    flashShot(summary, 4000);
+  });
   d.on('readiness', (state) => {
     if (d !== active) return;
     readiness = state;
@@ -117,11 +121,11 @@ function renderLamp() {
   $('#ready-title').textContent = title;
   $('#ready-detail').textContent = detail;
 }
-function flashShot(title = 'Shot recorded') {
+function flashShot(title = 'Shot recorded', ms = 1800) {
   flashTitle = title;
-  shotFlashUntil = Date.now() + 1800;
+  shotFlashUntil = Date.now() + ms;
   renderLamp();
-  setTimeout(renderLamp, 1850);
+  setTimeout(renderLamp, ms + 50);
 }
 
 // ---------- Data activity indicator (shows the device is sending something) ----------
@@ -897,6 +901,12 @@ $('#log-copy').addEventListener('click', async () => {
     getSelection()?.addRange(r);
     $('#label-msg').textContent = 'Copy was blocked. The log is selected; use your browser’s Copy.';
   }
+});
+$('#echo-last').addEventListener('click', () => {
+  const hex = ble.lastDataHex();
+  if (!hex) return appendLog('No SC4 Pro message yet. Hit a shot that registers first.');
+  $<HTMLInputElement>('#send-hex').value = hex;
+  appendLog('Loaded the last SC4 Pro message into the send box. Tap "Send to device", then watch for new ◀ 0003 lines.');
 });
 $<HTMLFormElement>('#send-form').addEventListener('submit', async (e) => {
   e.preventDefault();

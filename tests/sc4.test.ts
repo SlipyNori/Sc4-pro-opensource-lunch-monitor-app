@@ -13,11 +13,15 @@ describe('SC4 Pro frames', () => {
     expect(checksumOk(bad)).toBe(false);
   });
 
-  it('reads the frame type and the device clock', () => {
+  // The device screen for this shot: Practice · SW/56.0° · shot 1 · carry 31.1 yd ·
+  // swing 40.8 mph · ball 45.3 mph · smash 1.11 · launch 16.3° · dir −0.7° · apex 6.8 ft
+  it('reads the shot header: type, shot number, clock, club and loft', () => {
     const d = describeSc4Frame(REAL)!;
     expect(d.type).toBe('Ss');
+    expect(d.shotNumber).toBe(1);
     expect(d.time).toBe('2026-11-20 22:39:12');
-    expect(d.summary).toContain('value@13 = 56');
+    expect(d.clubCode).toBe(20);
+    expect(d.loftDeg).toBe(56);
   });
 
   it('ignores frames that are not SC4 messages', () => {

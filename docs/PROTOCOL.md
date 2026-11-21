@@ -20,17 +20,20 @@ The goal is a verified **device profile** (JSON) that tells the app how to turn 
 
 ### First captured frame
 
-`53 73 00 00 01 1A 0B 14 16 27 0C 00 14 00 00 60 42 00 45 BC`, received at 22:39:14 right after a hit.
+`53 73 00 00 01 1A 0B 14 16 27 0C 00 14 00 00 60 42 00 45 BC`, received at 22:39:14 right after a shot.
+The device screen for that shot: Practice · **SW/56.0°** · shot **1** · carry 31.1 yd · swing 40.8 mph · ball 45.3 mph · smash 1.11 · launch angle 16.3° · launch direction −0.7° · apex 6.8 ft · spin (blank).
 
 | Bytes | Value | Meaning |
 |---|---|---|
-| 0–1 | `53 73` = "Ss" | message type |
-| 2–4 | `00 00 01` | unknown (counter / shot number?) |
+| 0–1 | `53 73` = "Ss" | message type: shot header |
+| 2–4 | `00 00 01` | shot number (matches the screen's counter) |
 | 5–10 | `1A 0B 14 16 27 0C` | device clock: 2026-11-20 22:39:12 (YY MM DD hh mm ss) |
-| 11–12 | `00 14` | unknown (20) |
-| 13–16 | `00 00 60 42` | float32 little-endian = 56.0, unknown (ball speed?) |
-| 17–18 | `00 45` | unknown (69) |
+| 11–12 | `00 14` | club code, 20 = SW (to confirm with other clubs) |
+| 13–16 | `00 00 60 42` | float32 little-endian = 56.0 = **club loft** (SW/56.0° on screen) |
+| 17–18 | `00 45` | unknown |
 | 19 | `BC` | checksum: all 20 bytes sum to 0 (mod 256), confirmed |
+
+None of the shot's measurements (40.8, 45.3, 31.1, 16.3, 6.8, −0.7, 1.11) appear in this frame in any common encoding, and no other frame arrived. So this is a header, and the results probably follow only after the app acknowledges it. Experiment: send the same frame back on the command channel (`50340002`) and watch for more frames.
 
 20 bytes is the payload limit of one default BLE notification, so a full shot may span several frames. Next step: more frames, each paired with the numbers the device's screen showed (the Device tab now has a form for that).
 

@@ -140,7 +140,12 @@ export class BluetoothDevice extends BaseAdapter {
     this.capture.push({ t: Date.now(), char: charUuid, hex });
     this.emit('log', `◀ ${shortId(charUuid)} ${hex}`);
     const info = describeSc4Frame(bytes);
-    if (info && charUuid.startsWith('50340003')) this.emit('log', `    ↳ ${info.summary}`);
+    if (info && charUuid.startsWith('50340003')) {
+      this.emit('log', `    ↳ ${info.summary}`);
+      if (info.type === 'Ss' && info.checksumOk) {
+        this.emit('shotEvent', `SC4 Pro registered shot #${info.shotNumber}${info.loftDeg ? ` · loft ${info.loftDeg}°` : ''}`);
+      }
+    }
     this.emit('packet', charUuid, hex);
     const readiness = matchStatus(bytes, this.profile);
     if (readiness) {
@@ -186,6 +191,11 @@ export class BluetoothDevice extends BaseAdapter {
     this.handlers.clear();
     this.chars = [];
     this.writable = [];
+  }
+
+  /** Hex of the latest data-channel packet (for the acknowledge experiment) */
+  lastDataHex(): string | null {
+    return [...this.capture].reverse().find((c) => c.char.startsWith('50340003'))?.hex ?? null;
   }
 
   /** Attach what the device's screen showed to the latest data-channel packet. Returns that packet. */
