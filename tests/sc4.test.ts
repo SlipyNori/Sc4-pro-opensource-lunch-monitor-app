@@ -32,6 +32,13 @@ describe('SC4 Pro frames', () => {
     expect(d.values).toEqual([991.88, 32, 12.795]);
   });
 
+  it('reads "Sx" (no shot measured) frames', () => {
+    const d = describeSc4Frame(hexToBytes('53 78 0F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 45 E1'))!;
+    expect(d.type).toBe('Sx');
+    expect(d.checksumOk).toBe(true);
+    expect(d.code).toBe(15);
+  });
+
   it('ignores frames that are not SC4 messages', () => {
     expect(describeSc4Frame(hexToBytes('3C'))).toBeNull();
   });

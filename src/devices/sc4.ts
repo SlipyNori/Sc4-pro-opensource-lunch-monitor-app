@@ -15,6 +15,10 @@ import type { ClubId, ShotMeasurement } from '../types';
  *         part 2+: three float32 little-endian values (meaning being mapped)
  *   17-18 00 45                        unknown (same in every frame so far)
  *   19    checksum: all 20 bytes sum to 0 (mod 256)
+ *
+ * "Sx" frame: `53 78 0F 00 … 00 45 E1`, no measurements. Seen after swings
+ * that didn't produce a reading. Repeated until acknowledged (same echo).
+ * Byte 2 is probably a reason code (0x0F seen so far).
  */
 
 export function checksumOk(bytes: Uint8Array): boolean {
@@ -34,6 +38,8 @@ export interface Sc4FrameInfo {
   loftDeg?: number;
   /** Part 2+: the three float values */
   values?: number[];
+  /** "Sx" frames: reason code */
+  code?: number;
   /** Short human-readable summary for the log */
   summary: string;
 }
@@ -65,6 +71,9 @@ export function describeSc4Frame(bytes: Uint8Array): Sc4FrameInfo | null {
       info.values = [5, 9, 13].map((o) => round(v.getFloat32(o, true)));
       parts.push(`values ${info.values.join(' · ')}`);
     }
+  } else if (type === 'Sx') {
+    info.code = bytes[2];
+    parts.push(`no shot measured (code ${bytes[2]})`);
   }
   info.summary = parts.join(' · ');
   return info;

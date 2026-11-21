@@ -75,3 +75,17 @@ describe('SC4 Pro acknowledge flow', () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe('SC4 Pro "Sx" (no reading) messages', () => {
+  afterEach(() => vi.useRealTimers());
+  const SX = '53 78 0F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 45 E1';
+
+  it('acknowledges once and reports a missed shot once, even when repeated', () => {
+    vi.useFakeTimers();
+    const { sent, events, feed } = setup();
+    feed(SX); vi.advanceTimersByTime(50);
+    feed(SX); vi.advanceTimersByTime(50);
+    expect(sent).toEqual([SX]);
+    expect(events.filter((e) => e.includes("couldn't measure"))).toHaveLength(1);
+  });
+});

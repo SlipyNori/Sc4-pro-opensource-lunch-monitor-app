@@ -49,6 +49,12 @@ The device screen for this shot (counter 3): carry 17.0 yd · swing 30.5 mph · 
 
 So values are sent in **SI units** (m/s, probably metres) and converted for the screen. Expected in later parts for this shot: swing ≈ 13.63 m/s, carry ≈ 15.5 m, apex ≈ 3.0 m, launch direction ≈ 6.8°.
 
+Confirmed again on a second shot (screen: ball 28.5 mph → app 28.5 mph).
+
+### "Sx" frames
+
+`53 78 0F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 45 E1`: no measurements; arrives after a swing that didn't produce a reading and repeats until acknowledged (echo, like `Ss`). Byte 2 (`0x0F`) is probably a reason code. Bytes 17–18 are `00 45` in every frame type seen so far.
+
 OpenSC4 already turns a shot into a real shot in the app using the confirmed values (ball speed, and the club named from the loft); the rest is estimated until mapped. See `SC4_VALUE_MAP` in `src/devices/sc4.ts`.
 
 The device clock runs about 24 s behind the phone's clock in these captures, so the timestamp in part 1 isn't a delivery delay.

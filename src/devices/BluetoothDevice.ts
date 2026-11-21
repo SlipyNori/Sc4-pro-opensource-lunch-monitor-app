@@ -155,6 +155,11 @@ export class BluetoothDevice extends BaseAdapter {
       if (info.type === 'Ss' && info.checksumOk && info.part) {
         this.collectPart(info);
         this.acknowledge(hex);
+      } else if (info.checksumOk) {
+        // Other messages (e.g. "Sx": swing without a reading) are also resent
+        // until acknowledged, so acknowledge them the same way.
+        if (info.type === 'Sx' && hex !== this.lastAckHex) this.emit('shotEvent', "SC4 Pro couldn't measure that shot");
+        this.acknowledge(hex);
       }
     }
     this.emit('packet', charUuid, hex);
