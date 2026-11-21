@@ -163,3 +163,18 @@ th:first-child, td:first-child { text-align: left; }
 @media (max-width: 860px) { .camera-grid { grid-template-columns: 1fr; } }
 .camera-controls .row { flex-wrap: nowrap; min-width: 0; margin-bottom: 0; }
 #webcam-select { flex: 1 1 auto; min-width: 0; width: 100%; text-overflow: ellipsis; }
+
+/* ---------- Impact replay (picture-in-picture on the range) ---------- */
+.replay {
+  position: absolute; right: 10px; bottom: 10px; width: min(40%, 380px);
+  background: rgba(10, 14, 12, 0.88); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px;
+  padding: 6px; display: flex; flex-direction: column; gap: 6px; color: #fff;
+}
+.replay-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; padding-left: 4px; }
+.replay-buttons { display: flex; gap: 4px; }
+.replay-buttons button { padding: 2px 8px; background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); color: #fff; font-size: 12px; }
+.replay canvas { width: 100%; height: auto; display: block; border-radius: 6px; background: #000; }
+.replay input[type="range"] { width: 100%; margin: 0; padding: 0; background: none; border: none; accent-color: #4fb3ff; }
+@media (max-width: 860px) {
+  .replay { width: min(55%, 260px); bottom: auto; top: 10px; }
+}

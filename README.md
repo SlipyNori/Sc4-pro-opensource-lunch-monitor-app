@@ -12,6 +12,7 @@ An **open-source launch monitor dashboard and golf simulator** for the Swing Cad
 - **History and per-club stats**, including averages and consistency (carry/offline standard deviation). Shots are saved in your browser.
 - **CSV export/import.** Import understands common column names (`Ball Speed`, `Launch Angle`, `Back Spin`, …).
 - **Ready light + webcam ball detection**: a big status light on the range, readable from the hitting position. Point any webcam at the hitting spot and draw a box around the ball. The light turns green when a ball is sitting still in the box and the radar is connected, and a hit is detected when the ball leaves. Radar can't see a ball at rest, so the camera handles setup while the radar handles the numbers.
+- **Impact replay**: while the webcam is on, a small rolling buffer of low-resolution frames is kept in memory. Each hit saves about 1.5 s before and 0.7 s after impact and plays it in slow motion in a corner of the range, with the impact frame marked and a slider to step through frames. Three quality levels (10/15/30 fps). Clips for the last 6 shots stay in memory; click a shot in History to replay it.
 - **Device layer** with three inputs:
   - **Simulator**, so you can use everything with no hardware (press **Space**).
   - **Manual entry** for numbers read off the SC4 Pro display or app.

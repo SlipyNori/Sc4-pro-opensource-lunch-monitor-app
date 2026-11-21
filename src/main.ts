@@ -11,6 +11,8 @@ import { loadJson, loadShots, saveJson, saveShots } from './session/store';
 import { DEFAULT_ENVIRONMENT, simulateShot, type Environment } from './physics/ballFlight';
 import { CLUBS, type ClubId, type Shot, type ShotMeasurement } from './types';
 import { CameraTracker, DEFAULT_CAMERA_SETTINGS, type CameraSettings } from './camera/CameraTracker';
+import { REPLAY_QUALITIES, ReplayRecorder, releaseClip, type ReplayClip } from './camera/ReplayRecorder';
+import { ReplayPlayer } from './camera/ReplayPlayer';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -130,6 +132,7 @@ function addShot(m: ShotMeasurement, source: string) {
   saveShots(shots);
   scene.playShot(flight);
   flashShot();
+  attachReplayToShot(shot);
   renderTiles(shot);
   renderHistory();
   renderStats();
@@ -259,6 +262,8 @@ $('#history-table').addEventListener('click', (e) => {
   if (!s) return;
   scene.playShot(simulateShot(completeMeasurement(s, s.club), env));
   renderTiles(s);
+  const clip = clipsByShot.get(s.id);
+  if (clip) player.load(clip, `Replay · ${s.club}`);
 });
 
 function renderStats() {
@@ -369,6 +374,7 @@ camSelect.addEventListener('change', async () => {
 async function startCamera() {
   try {
     await camera.start();
+    if (replayOn.checked) recorder.start(camera.video);
     camToggle.textContent = 'Stop camera';
     camMsg('');
     await fillCameraList(); // labels are only available after permission is granted
@@ -379,6 +385,7 @@ async function startCamera() {
 }
 camToggle.addEventListener('click', async () => {
   if (camera.running) {
+    recorder.stop();
     camera.stop();
     camToggle.textContent = 'Start camera';
     $('#cam-state').textContent = 'Camera off';
@@ -415,6 +422,10 @@ camera.onFrame = () => {
 camera.onEvent = (ev) => {
   if (ev === 'hit') {
     appendLog('📷 Camera: ball left the box – hit detected');
+    lastCameraHitAt = Date.now();
+    // Impact happened just after the ball was last seen, not when we noticed it was gone.
+    const impactT = camera.lastBallSeenAt ? camera.lastBallSeenAt + 40 : performance.now();
+    if (recorder.running) recorder.capture(impactT).then((clip) => clip && onClip(clip));
     flashShot('Swing detected');
     if (active === sim && status === 'connected' && $<HTMLInputElement>('#cam-sim').checked) sim.hit();
   } else if (ev === 'removed') {
@@ -425,6 +436,77 @@ camera.onEvent = (ev) => {
   renderLamp();
 };
 camera.enableZoneDrawing(() => saveCam());
+
+// ---------- Impact replay ----------
+const REPLAY_KEY = 'open-sc4.replay.v1';
+const replaySaved = loadJson<{ on: boolean; quality: string }>(REPLAY_KEY, { on: true, quality: 'balanced' });
+const recorder = new ReplayRecorder();
+recorder.quality = REPLAY_QUALITIES.find((q) => q.id === replaySaved.quality) ?? REPLAY_QUALITIES[1];
+const player = new ReplayPlayer($('#replay'), $<HTMLCanvasElement>('#replay-canvas'), $<HTMLInputElement>('#replay-scrub'), $('#replay-label'));
+const replayOn = $<HTMLInputElement>('#replay-on');
+const replayQuality = $<HTMLSelectElement>('#replay-quality');
+replayOn.checked = replaySaved.on;
+replayQuality.innerHTML = REPLAY_QUALITIES.map((q) => `<option value="${q.id}" ${q === recorder.quality ? 'selected' : ''}>${q.label}</option>`).join('');
+const saveReplay = () => saveJson(REPLAY_KEY, { on: replayOn.checked, quality: recorder.quality.id });
+replayOn.addEventListener('change', () => {
+  if (replayOn.checked && camera.running) recorder.start(camera.video);
+  else recorder.stop();
+  saveReplay();
+});
+replayQuality.addEventListener('change', () => {
+  recorder.setQuality(REPLAY_QUALITIES.find((q) => q.id === replayQuality.value)!);
+  saveReplay();
+});
+$('#replay-play').addEventListener('click', () => player.play(1));
+$('#replay-close').addEventListener('click', () => player.hide());
+$('#replay-speed').addEventListener('click', (e) => {
+  const speeds = [0.5, 0.25, 1];
+  player.speed = speeds[(speeds.indexOf(player.speed) + 1) % speeds.length];
+  (e.target as HTMLElement).textContent = player.speed === 1 ? '1×' : player.speed === 0.5 ? '½×' : '¼×';
+});
+
+/** Clips are kept in memory only, for the most recent shots. */
+const MAX_CLIPS = 6;
+const clipsByShot = new Map<string, ReplayClip>();
+const clipOrder: ReplayClip[] = [];
+let pendingClip: { clip: ReplayClip; at: number } | null = null;
+let lastCameraHitAt = 0;
+
+function keepClip(clip: ReplayClip) {
+  clipOrder.push(clip);
+  while (clipOrder.length > MAX_CLIPS) {
+    const old = clipOrder.shift()!;
+    for (const [id, c] of clipsByShot) if (c === old) clipsByShot.delete(id);
+    if (pendingClip?.clip === old) pendingClip = null;
+    releaseClip(old);
+  }
+}
+
+function onClip(clip: ReplayClip) {
+  keepClip(clip);
+  // Pair with a shot that already arrived (e.g. simulator), otherwise wait for the radar's shot.
+  const recent = [...shots].reverse().find((s) => Date.now() - s.timestamp < 4000 && !clipsByShot.has(s.id));
+  if (recent) clipsByShot.set(recent.id, clip);
+  else pendingClip = { clip, at: Date.now() };
+  player.load(clip, recent ? `Impact replay · ${recent.club}` : 'Impact replay');
+}
+
+function attachReplayToShot(shot: Shot) {
+  if (pendingClip && Date.now() - pendingClip.at < 6000) {
+    clipsByShot.set(shot.id, pendingClip.clip);
+    pendingClip = null;
+    return;
+  }
+  // Radar shot without a camera-detected hit: grab what the buffer has from just before now.
+  if (recorder.running && Date.now() - lastCameraHitAt > 4000) {
+    recorder.capture(performance.now() - 300, 2500, 300).then((clip) => {
+      if (!clip) return;
+      keepClip(clip);
+      clipsByShot.set(shot.id, clip);
+      player.load(clip, `Replay · ${shot.club}`);
+    });
+  }
+}
 camera.draw();
 fillCameraList();
 

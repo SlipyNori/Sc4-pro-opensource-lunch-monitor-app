@@ -38,6 +38,8 @@ export class CameraTracker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private presence: BallPresence;
   last: PixelCount = { count: 0 };
+  /** When the ball was last seen in the box (performance.now ms): the best estimate of impact time */
+  lastBallSeenAt = 0;
   onEvent: (e: BallEvent) => void = () => {};
   onFrame: () => void = () => {};
 
@@ -103,6 +105,7 @@ export class CameraTracker {
     this.ctx.drawImage(this.video, 0, 0, W, H);
     const img = this.ctx.getImageData(0, 0, W, H);
     this.last = countBallPixels(img.data, W, H, this.settings.zone, this.settings.pixels);
+    if (this.last.count >= this.settings.minPixels) this.lastBallSeenAt = performance.now();
     const ev = this.presence.update(this.last, performance.now());
     if (ev) this.onEvent(ev);
     this.draw(img);

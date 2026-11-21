@@ -27,6 +27,18 @@
     <main class="layout">
       <section class="range-wrap">
         <div id="range" class="range"></div>
+        <div id="replay" class="replay" hidden>
+          <div class="replay-head">
+            <span id="replay-label">Impact replay</span>
+            <span class="replay-buttons">
+              <button id="replay-play" title="Play again">↻</button>
+              <button id="replay-speed" title="Playback speed">½×</button>
+              <button id="replay-close" title="Close replay" aria-label="Close replay">✕</button>
+            </span>
+          </div>
+          <canvas id="replay-canvas" aria-label="Impact replay"></canvas>
+          <input id="replay-scrub" type="range" min="0" max="0" value="0" aria-label="Step through replay frames" />
+        </div>
         <div id="ready-lamp" class="ready-lamp" data-state="off" role="status" aria-live="polite">
           <span class="lamp"></span>
           <span class="lamp-text">
@@ -113,6 +125,10 @@
               <p class="hint">Put a ball in the box, then click this to set the detection level automatically.</p>
               <label class="slider">Ball pixels needed <input id="cam-min" type="range" min="4" max="600" step="1" /></label>
               <label class="slider">Brightness threshold <input id="cam-bright" type="range" min="90" max="250" step="5" /></label>
+              <label class="check"><input id="replay-on" type="checkbox" checked /> Record an impact replay of each shot</label>
+              <label class="slider">Replay quality
+                <select id="replay-quality"></select>
+              </label>
               <label class="check"><input id="cam-sim" type="checkbox" checked /> When using the Simulator, a camera-detected hit fires a simulated shot</label>
               <span id="cam-msg" class="msg" role="status"></span>
             </div>
