@@ -139,7 +139,7 @@ $('#clear-tracers').addEventListener('click', () => scene.clearTracers());
 
 // ---------- Shot tiles ----------
 function renderTiles(s?: Shot) {
-  $('#last-club').textContent = s ? s.club : '';
+  $('#last-club').textContent = s ? `${s.club} · ${s.source.replace(/ \(.*\)$/, '')}` : '';
   const v = (x: number | undefined, dp = 1) => (x === undefined ? '–' : x.toFixed(dp));
   const lr = (x: number | undefined, dp = 1) => (x === undefined ? '–' : `${Math.abs(x).toFixed(dp)}${x > 0 ? 'R' : x < 0 ? 'L' : ''}`);
   const est = (k: keyof ShotMeasurement) => (s?.estimated?.includes(k) ? 'est' : '');
