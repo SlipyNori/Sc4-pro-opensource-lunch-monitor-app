@@ -10,8 +10,8 @@
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <meta name="theme-color" content="#163b24" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <script type="module" crossorigin src="./assets/index-DtsDisUb.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CaD3kOFt.css">
+    <script type="module" crossorigin src="./assets/index-CypzNWyb.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CsmDpj9q.css">
   </head>
   <body>
     <header class="topbar">
@@ -245,6 +245,25 @@
               <form id="send-form" class="row send-row">
                 <input id="send-hex" placeholder="Bytes to send, in hex (e.g. 01 00)" aria-label="Bytes to send to the device" spellcheck="false" />
                 <button type="submit">Send to device</button>
+              </form>
+              <form id="label-form" class="label-form">
+                <strong>What did the SC4 Pro screen show for the last hit?</strong>
+                <p class="hint">Fill in what you can, right after a hit. It's saved with the latest SC4 Pro message, which is how the data gets decoded.</p>
+                <div class="form-grid">
+                  <label>Swing (club) mph<input name="clubSpeedMph" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Ball mph<input name="ballSpeedMph" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Smash factor<input name="smash" type="number" step="0.01" inputmode="decimal" /></label>
+                  <label>Carry (yd)<input name="carryYd" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Launch angle (°)<input name="launchAngleDeg" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Launch direction (°, + = R)<input name="launchDirectionDeg" type="number" step="0.1" inputmode="decimal" /></label>
+                  <label>Spin (rpm)<input name="spinRpm" type="number" step="1" inputmode="numeric" /></label>
+                  <label>Apex (ft)<input name="apexFt" type="number" step="0.1" inputmode="decimal" /></label>
+                </div>
+                <div class="row">
+                  <button type="submit" class="primary">Save with last message</button>
+                  <button type="button" id="log-copy">Copy capture</button>
+                  <span id="label-msg" class="msg" role="status"></span>
+                </div>
               </form>
               <p class="hint">For protocol research: sends raw bytes to the SC4 Pro's command channel. Only send bytes you've seen the official app send; unknown commands could change device settings.</p>
             </div>
