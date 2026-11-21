@@ -56,6 +56,17 @@ describe('SC4 Pro acknowledge flow', () => {
     expect(logs.some((l) => l.includes('p2: 991.88, 32, 12.795'))).toBe(true);
   });
 
+  it('sends a shot to the app with the real ball speed and club', () => {
+    vi.useFakeTimers();
+    const { dev, feed } = setup();
+    const shots: { ballSpeedMph: number; clubHint?: string }[] = [];
+    dev.on('shot', (s) => shots.push(s));
+    feed(P1); vi.advanceTimersByTime(50);
+    feed(P2); vi.advanceTimersByTime(2000);
+    expect(shots).toHaveLength(1);
+    expect(shots[0]).toMatchObject({ ballSpeedMph: 28.6, clubHint: 'SW' });
+  });
+
   it('does nothing when automatic acknowledge is off', () => {
     vi.useFakeTimers();
     const { dev, sent, feed } = setup();

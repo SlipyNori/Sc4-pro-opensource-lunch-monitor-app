@@ -46,7 +46,9 @@ const scene = new RangeScene($('#range'));
 // ---------- Device wiring ----------
 for (const d of devices) {
   d.on('shot', (m) => {
-    if (d === active) addShot(m, d.name);
+    if (d !== active) return;
+    if (m.clubHint && m.clubHint !== club) setClub(m.clubHint);
+    addShot(m, d === ble ? 'SC4 Pro' : d.name);
   });
   d.on('status', (s, detail) => {
     if (d !== active) return;

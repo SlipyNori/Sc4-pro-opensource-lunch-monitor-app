@@ -1,3 +1,4 @@
+import type { ClubId, ShotMeasurement } from '../types';
 /**
  * What we know so far about Swing Caddie SC4 Pro data-channel (50340003) frames.
  * See docs/PROTOCOL.md. Everything here is confirmed from real captures paired
@@ -67,4 +68,60 @@ export function describeSc4Frame(bytes: Uint8Array): Sc4FrameInfo | null {
   }
   info.summary = parts.join(' · ');
   return info;
+}
+
+// ---------------- Turning parts into a shot ----------------
+
+
+export interface Sc4Part {
+  part: number;
+  values?: number[];
+  loft?: number;
+  club?: number;
+  time?: string;
+}
+
+/**
+ * Where each measurement lives, as [part, index within that part's three values].
+ * Only confirmed entries are listed; each was matched against the device screen.
+ *   ballSpeedMs: confirmed 2026-11-20, 12.795 m/s ↔ screen "Ball 28.6 mph"
+ */
+export const SC4_VALUE_MAP: Partial<Record<'ballSpeedMs', [number, number]>> = {
+  ballSpeedMs: [2, 2],
+};
+
+/** Typical lofts, to name the club from the loft the device reports */
+const CLUB_LOFTS: [ClubId, number][] = [
+  ['DR', 10.5], ['3W', 15], ['5W', 18], ['HY', 21], ['4i', 24], ['5i', 27], ['6i', 30],
+  ['7i', 34], ['8i', 38], ['9i', 42], ['PW', 46], ['GW', 50], ['SW', 56], ['LW', 60],
+];
+
+export function clubFromLoft(loft: number): ClubId {
+  let best = CLUB_LOFTS[0];
+  for (const c of CLUB_LOFTS) if (Math.abs(c[1] - loft) < Math.abs(best[1] - loft)) best = c;
+  return best[0];
+}
+
+/**
+ * Build a shot from the parts received so far, using only confirmed values.
+ * Returns null if the shot's ball speed hasn't arrived (e.g. acknowledge is off).
+ */
+export function sc4ShotFromParts(parts: Sc4Part[]): (ShotMeasurement & { clubHint?: ClubId }) | null {
+  const get = (key: keyof typeof SC4_VALUE_MAP) => {
+    const loc = SC4_VALUE_MAP[key];
+    if (!loc) return undefined;
+    const v = parts.find((p) => p.part === loc[0])?.values?.[loc[1]];
+    return v !== undefined && Number.isFinite(v) ? v : undefined;
+  };
+  const ballMs = get('ballSpeedMs');
+  if (ballMs === undefined || ballMs <= 0 || ballMs > 120) return null;
+  const head = parts.find((p) => p.part === 1);
+  const raw = parts
+    .map((p) => (p.part === 1 ? `p1: club ${p.club}, loft ${p.loft}` : `p${p.part}: ${p.values?.join(', ')}`))
+    .join(' | ');
+  return {
+    ballSpeedMph: Math.round(ballMs * 2.23694 * 10) / 10,
+    clubHint: head?.loft ? clubFromLoft(head.loft) : undefined,
+    raw,
+  };
 }

@@ -1,6 +1,6 @@
 import { BaseAdapter } from './DeviceAdapter';
 import { bytesToHex, decodeFrame, hexToBytes, matchStatus, type DeviceProfile } from './frameDecoder';
-import { describeSc4Frame } from './sc4';
+import { describeSc4Frame, sc4ShotFromParts } from './sc4';
 
 /**
  * Web Bluetooth launch-monitor adapter.
@@ -235,6 +235,11 @@ export class BluetoothDevice extends BaseAdapter {
     const values = parts.filter((p) => p.values).map((p) => `p${p.part}: ${p.values!.join(', ')}`);
     this.emit('log', `★ Shot complete · ${parts.length} part${parts.length > 1 ? 's' : ''}${head ? ` · club ${head.club} · loft ${head.loft}° · ${head.time ?? ''}` : ''}`);
     if (values.length) this.emit('log', `★ Values · ${values.join(' | ')}`);
+    const shot = sc4ShotFromParts(parts);
+    if (shot) {
+      this.emit('log', `★ Shot sent to the app · ball ${shot.ballSpeedMph} mph${shot.clubHint ? ` · club ${shot.clubHint}` : ''} (other numbers estimated until decoded)`);
+      this.emit('shot', shot);
+    }
     this.shotParts = [];
   }
 

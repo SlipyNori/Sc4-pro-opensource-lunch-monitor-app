@@ -37,7 +37,19 @@ None of the shot's measurements appear in this first frame. **The device sends a
 
 ### Part 2 (released by acknowledging part 1)
 
-`53 73 00 00 02 52 F8 77 44 00 00 00 42 93 B9 4C 41 00 45 D3`: three float32 little-endian values, **991.88 · 32.0 · 12.795**. Which measurement each is still needs matching against the device screen for the same shot. More parts are expected (a shot has 8+ values).
+`53 73 00 00 02 52 F8 77 44 00 00 00 42 93 B9 4C 41 00 45 D3`: three float32 little-endian values, **991.88 · 32.0 · 12.795**.
+
+The device screen for this shot (counter 3): carry 17.0 yd · swing 30.5 mph · ball 28.6 mph · launch direction 6.8° right · apex 9.8 ft · smash, launch angle and spin shown as "--".
+
+| Part 2 value | Meaning |
+|---|---|
+| 1: 991.88 | unknown (spin in rpm? shown as "--" on screen) |
+| 2: 32.0 | unknown (launch angle in degrees? shown as "--") |
+| 3: 12.795 | **ball speed in m/s, confirmed** (12.795 m/s = 28.6 mph) |
+
+So values are sent in **SI units** (m/s, probably metres) and converted for the screen. Expected in later parts for this shot: swing ≈ 13.63 m/s, carry ≈ 15.5 m, apex ≈ 3.0 m, launch direction ≈ 6.8°.
+
+OpenSC4 already turns a shot into a real shot in the app using the confirmed values (ball speed, and the club named from the loft); the rest is estimated until mapped. See `SC4_VALUE_MAP` in `src/devices/sc4.ts`.
 
 The device clock runs about 24 s behind the phone's clock in these captures, so the timestamp in part 1 isn't a delivery delay.
 

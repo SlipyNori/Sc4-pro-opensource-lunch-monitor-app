@@ -24,7 +24,7 @@ export interface FieldSpec {
   add?: number;
 }
 
-export type DecodableField = Exclude<keyof ShotMeasurement, 'raw'>;
+export type DecodableField = Exclude<keyof ShotMeasurement, 'raw' | 'clubHint'>;
 
 export interface FrameMatcher {
   /** Exact frame length in bytes, if fixed */

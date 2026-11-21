@@ -36,3 +36,30 @@ describe('SC4 Pro frames', () => {
     expect(describeSc4Frame(hexToBytes('3C'))).toBeNull();
   });
 });
+
+import { clubFromLoft, sc4ShotFromParts } from '../src/devices/sc4';
+
+describe('SC4 Pro shot from parts', () => {
+  // Screen for this shot: carry 17.0 yd · swing 30.5 mph · ball 28.6 mph · launch dir 6.8° R · apex 9.8 ft
+  const parts = [
+    { part: 1, loft: 56, club: 20, time: '2026-11-20 23:04:21' },
+    { part: 2, values: [991.88, 32, 12.795] },
+  ];
+
+  it('uses the confirmed ball speed (m/s → mph) and names the club from the loft', () => {
+    const shot = sc4ShotFromParts(parts)!;
+    expect(shot.ballSpeedMph).toBe(28.6);
+    expect(shot.clubHint).toBe('SW');
+    expect(shot.raw).toContain('p2: 991.88, 32, 12.795');
+  });
+
+  it('waits for the part with the ball speed', () => {
+    expect(sc4ShotFromParts([parts[0]])).toBeNull();
+  });
+
+  it('maps lofts to clubs', () => {
+    expect(clubFromLoft(10)).toBe('DR');
+    expect(clubFromLoft(34)).toBe('7i');
+    expect(clubFromLoft(46)).toBe('PW');
+  });
+});

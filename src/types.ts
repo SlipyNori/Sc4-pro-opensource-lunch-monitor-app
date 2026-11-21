@@ -18,6 +18,8 @@ export interface ShotMeasurement {
   deviceTotalYd?: number;
   /** Raw bytes from the device for debugging / protocol research */
   raw?: string;
+  /** Club the device says was used (if it reports one) */
+  clubHint?: ClubId;
 }
 
 export interface Shot extends ShotMeasurement {
