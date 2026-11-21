@@ -270,7 +270,7 @@ function renderTiles(s?: Shot) {
     ['Direction', lr(s?.launchDirectionDeg), '°', est('launchDirectionDeg')],
     ['Spin', v(s?.spinRpm, 0), 'rpm', est('spinRpm')],
     ['Spin axis', lr(s?.spinAxisDeg), '°', est('spinAxisDeg')],
-    ['Apex', v(s?.apexFt, 0), 'ft'],
+    ['Apex', v(s?.apexFt, s && s.apexFt % 1 ? 1 : 0), 'ft'],
     ['Land angle', v(s?.landingAngleDeg), '°'],
   ];
   $('#tiles').innerHTML = tiles

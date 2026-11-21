@@ -3,7 +3,7 @@ import { CLUBS, type ClubId, type Shot, type ShotMeasurement } from '../types';
 const COLUMNS: (keyof Shot)[] = [
   'timestamp', 'club', 'source', 'clubSpeedMph', 'ballSpeedMph', 'smashFactor', 'launchAngleDeg',
   'launchDirectionDeg', 'spinRpm', 'spinAxisDeg', 'carryYd', 'totalYd', 'offlineYd', 'apexFt',
-  'landingAngleDeg', 'flightTimeS', 'deviceCarryYd', 'deviceTotalYd',
+  'landingAngleDeg', 'flightTimeS', 'deviceCarryYd', 'deviceTotalYd', 'deviceApexFt',
 ];
 
 export function shotsToCsv(shots: Shot[]): string {

@@ -53,9 +53,10 @@ describe('SC4 Pro shot from parts', () => {
     { part: 2, values: [991.88, 32, 12.795] },
   ];
 
-  it('uses the confirmed ball speed (m/s → mph) and names the club from the loft', () => {
+  it('uses the ball speed (m/s → mph) and names the club from the loft', () => {
     const shot = sc4ShotFromParts(parts)!;
     expect(shot.ballSpeedMph).toBe(28.6);
+    expect(shot.launchAngleDeg).toBe(32);
     expect(shot.clubHint).toBe('SW');
     expect(shot.raw).toContain('p2: 991.88, 32, 12.795');
   });
@@ -68,5 +69,35 @@ describe('SC4 Pro shot from parts', () => {
     expect(clubFromLoft(10)).toBe('DR');
     expect(clubFromLoft(34)).toBe('7i');
     expect(clubFromLoft(46)).toBe('PW');
+  });
+});
+
+describe('SC4 Pro full shot decode', () => {
+  // Real 6-part shot, 2026-11-20 23:14:27. Device screen: carry 16.9 yd · swing 30.6 mph ·
+  // ball 28.5 mph · launch direction 4.9° R · apex 9.6 ft (launch angle, spin, smash: "--")
+  const parts = [
+    { part: 1, loft: 56, club: 20, time: '2026-11-20 23:14:27' },
+    { part: 2, values: [991.76, 33.8, 12.719] },
+    { part: 3, values: [13.698, 136, 15.44] },
+    { part: 4, values: [16.344, 2.936, 4066] },
+    { part: 5, values: [4.945, 20.113, 0] },
+    { part: 6, values: [0, 0, 0] },
+  ];
+
+  it('matches every number on the device screen', () => {
+    const s = sc4ShotFromParts(parts)!;
+    expect(s.ballSpeedMph).toBe(28.5);
+    expect(s.clubSpeedMph).toBe(30.6);
+    expect(s.deviceCarryYd).toBe(16.9);
+    expect(s.deviceApexFt).toBe(9.6);
+    expect(s.launchDirectionDeg).toBe(4.9);
+    expect(s.clubHint).toBe('SW');
+  });
+
+  it('also reads launch angle, spin and total', () => {
+    const s = sc4ShotFromParts(parts)!;
+    expect(s.launchAngleDeg).toBe(33.8);
+    expect(s.spinRpm).toBe(4066);
+    expect(s.deviceTotalYd).toBe(17.9);
   });
 });

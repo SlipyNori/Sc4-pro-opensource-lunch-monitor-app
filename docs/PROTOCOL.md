@@ -51,6 +51,30 @@ So values are sent in **SI units** (m/s, probably metres) and converted for the 
 
 Confirmed again on a second shot (screen: ball 28.5 mph → app 28.5 mph).
 
+### Full shot (6 parts), decoded
+
+Shot at 23:14:27. Screen: carry 16.9 yd · swing 30.6 mph · ball 28.5 mph · launch direction 4.9° R · apex 9.6 ft (smash, launch angle, spin: "--").
+Parts after acknowledging each one:
+
+```
+p2: 991.76, 33.8, 12.719 | p3: 13.698, 136, 15.44 | p4: 16.344, 2.936, 4066 | p5: 4.945, 20.113, 0 | p6: 0, 0, 0
+```
+
+| Part · value | Data | Meaning | Check |
+|---|---|---|---|
+| p2 · 1 | 991.76 | unknown, nearly constant (991.88 on another shot): air pressure in hPa? | |
+| p2 · 2 | 33.8 | **launch angle, °** | 32.0 on the previous SW shot; reproduces carry/apex in the flight model (16° or 45° don't) |
+| p2 · 3 | 12.719 | **ball speed, m/s** | = 28.5 mph ✓ (and 12.795 = 28.6 mph on the previous shot ✓) |
+| p3 · 1 | 13.698 | **club speed, m/s** | = 30.6 mph ✓ |
+| p3 · 2 | 136 | unknown | |
+| p3 · 3 | 15.44 | **carry, m** | = 16.9 yd ✓ |
+| p4 · 1 | 16.344 | **total, m** (device estimate) | = 17.9 yd, a little past carry |
+| p4 · 2 | 2.936 | **apex, m** | = 9.6 ft ✓ |
+| p4 · 3 | 4066 | **spin, rpm** | plausible for a wedge; screen showed "--" |
+| p5 · 1 | 4.945 | **launch direction, °** (+ = right) | = 4.9° R ✓ (sign for left shots still to confirm) |
+| p5 · 2 | 20.113 | unknown: air temperature in °C? | |
+| p5 · 3, p6 | 0 | unused / not measured | |
+
 ### "Sx" frames
 
 `53 78 0F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 45 E1`: no measurements; arrives after a swing that didn't produce a reading and repeats until acknowledged (echo, like `Ss`). Byte 2 (`0x0F`) is probably a reason code. Bytes 17–18 are `00 45` in every frame type seen so far.

@@ -57,3 +57,14 @@ describe('session', () => {
     expect(r.m).toMatchObject({ ballSpeedMph: 150, launchAngleDeg: 12, spinRpm: 2800, deviceCarryYd: 240 });
   });
 });
+
+describe('device-measured numbers', () => {
+  it('shows the launch monitor’s own carry, total and apex when it reports them', () => {
+    const { shot } = processShot({ ballSpeedMph: 28.5, clubSpeedMph: 30.6, launchAngleDeg: 33.8, spinRpm: 4066, deviceCarryYd: 16.9, deviceTotalYd: 17.9, deviceApexFt: 9.6 }, 'SW', 'SC4 Pro');
+    expect(shot.carryYd).toBe(16.9);
+    expect(shot.totalYd).toBe(17.9);
+    expect(shot.apexFt).toBe(9.6);
+    expect(shot.smashFactor).toBe(0.93);
+    expect(shot.estimated).toEqual(expect.not.arrayContaining(['launchAngleDeg', 'spinRpm']));
+  });
+});

@@ -13,9 +13,10 @@ export interface ShotMeasurement {
   spinRpm?: number;
   /** + = tilted right (fade/slice for a right-handed golfer) */
   spinAxisDeg?: number;
-  /** Device-reported carry / total in yards, if provided */
+  /** Device-reported carry / total in yards and apex in feet, if provided */
   deviceCarryYd?: number;
   deviceTotalYd?: number;
+  deviceApexFt?: number;
   /** Raw bytes from the device for debugging / protocol research */
   raw?: string;
   /** Club the device says was used (if it reports one) */

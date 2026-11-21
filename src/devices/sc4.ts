@@ -92,12 +92,25 @@ export interface Sc4Part {
 
 /**
  * Where each measurement lives, as [part, index within that part's three values].
- * Only confirmed entries are listed; each was matched against the device screen.
- *   ballSpeedMs: confirmed 2026-11-20, 12.795 m/s ↔ screen "Ball 28.6 mph"
+ * Units are SI as sent by the device. Matched against the device screen for the
+ * shot at 23:14:27 on 2026-11-20 (screen → data):
+ *   swing 30.6 mph ↔ 13.698 m/s · ball 28.5 mph ↔ 12.719 m/s · carry 16.9 yd ↔ 15.44 m
+ *   apex 9.6 ft ↔ 2.936 m · launch direction 4.9° R ↔ 4.945
+ * Launch angle (33.8°) and spin (4066 rpm) showed "--" on screen, but reproduce
+ * the measured carry/apex in the flight model; total (16.344 m) is the device's
+ * estimate including roll. Other values seen: p2[0] ≈ 991.8 (constant; air
+ * pressure?), p3[1] = 136 (unknown), p5[1] = 20.1 (air temperature °C?).
  */
-export const SC4_VALUE_MAP: Partial<Record<'ballSpeedMs', [number, number]>> = {
+export const SC4_VALUE_MAP = {
   ballSpeedMs: [2, 2],
-};
+  launchAngleDeg: [2, 1],
+  clubSpeedMs: [3, 0],
+  carryM: [3, 2],
+  totalM: [4, 0],
+  apexM: [4, 1],
+  spinRpm: [4, 2],
+  launchDirectionDeg: [5, 0],
+} as const satisfies Record<string, readonly [number, number]>;
 
 /** Typical lofts, to name the club from the loft the device reports */
 const CLUB_LOFTS: [ClubId, number][] = [
@@ -116,21 +129,39 @@ export function clubFromLoft(loft: number): ClubId {
  * Returns null if the shot's ball speed hasn't arrived (e.g. acknowledge is off).
  */
 export function sc4ShotFromParts(parts: Sc4Part[]): (ShotMeasurement & { clubHint?: ClubId }) | null {
-  const get = (key: keyof typeof SC4_VALUE_MAP) => {
-    const loc = SC4_VALUE_MAP[key];
-    if (!loc) return undefined;
-    const v = parts.find((p) => p.part === loc[0])?.values?.[loc[1]];
-    return v !== undefined && Number.isFinite(v) ? v : undefined;
+  const get = (key: keyof typeof SC4_VALUE_MAP, min: number, max: number) => {
+    const [part, idx] = SC4_VALUE_MAP[key];
+    const v = parts.find((p) => p.part === part)?.values?.[idx];
+    // Zero means "not measured"; anything outside a sane range is ignored
+    return v !== undefined && Number.isFinite(v) && v !== 0 && v >= min && v <= max ? v : undefined;
   };
-  const ballMs = get('ballSpeedMs');
-  if (ballMs === undefined || ballMs <= 0 || ballMs > 120) return null;
+  const ballMs = get('ballSpeedMs', 0.5, 120);
+  if (ballMs === undefined) return null;
+  const MS = 2.23694, YD = 1.0936133, FT = 3.2808399;
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const clubMs = get('clubSpeedMs', 0.5, 100);
+  const carryM = get('carryM', 0.1, 450);
+  const totalM = get('totalM', 0.1, 500);
+  const apexM = get('apexM', 0.01, 100);
+  const launch = get('launchAngleDeg', 0.1, 80);
+  const spin = get('spinRpm', 50, 15000);
+  const dirRaw = parts.find((p) => p.part === SC4_VALUE_MAP.launchDirectionDeg[0])?.values?.[SC4_VALUE_MAP.launchDirectionDeg[1]];
+  const dir = dirRaw !== undefined && Number.isFinite(dirRaw) && Math.abs(dirRaw) <= 45 ? dirRaw : undefined;
   const head = parts.find((p) => p.part === 1);
   const raw = parts
     .map((p) => (p.part === 1 ? `p1: club ${p.club}, loft ${p.loft}` : `p${p.part}: ${p.values?.join(', ')}`))
     .join(' | ');
-  return {
-    ballSpeedMph: Math.round(ballMs * 2.23694 * 10) / 10,
+  const shot: ShotMeasurement & { clubHint?: ClubId } = {
+    ballSpeedMph: r1(ballMs * MS),
     clubHint: head?.loft ? clubFromLoft(head.loft) : undefined,
     raw,
   };
+  if (clubMs !== undefined) shot.clubSpeedMph = r1(clubMs * MS);
+  if (launch !== undefined) shot.launchAngleDeg = r1(launch);
+  if (spin !== undefined) shot.spinRpm = Math.round(spin);
+  if (dir !== undefined) shot.launchDirectionDeg = r1(dir);
+  if (carryM !== undefined) shot.deviceCarryYd = r1(carryM * YD);
+  if (totalM !== undefined) shot.deviceTotalYd = r1(totalM * YD);
+  if (apexM !== undefined) shot.deviceApexFt = r1(apexM * FT);
+  return shot;
 }
