@@ -108,7 +108,7 @@ export class BluetoothDevice extends BaseAdapter {
         if (p.read) {
           try {
             const v = await ch.readValue();
-            this.emit('log', `    read: ${bytesToHex(v)}  "${printable(v)}"`);
+            this.emit('log', `    read: ${bytesToHex(v)}  "${printable(v)}"${shortId(ch.uuid) === '2a19' && v.byteLength === 1 ? `  (battery ${v.getUint8(0)}%)` : ''}`);
           } catch { /* not readable without auth etc. */ }
         }
         if (p.write || p.writeWithoutResponse) this.writable.push(ch);
@@ -139,6 +139,7 @@ export class BluetoothDevice extends BaseAdapter {
     const hex = bytesToHex(bytes);
     this.capture.push({ t: Date.now(), char: charUuid, hex });
     this.emit('log', `◀ ${shortId(charUuid)} ${hex}`);
+    if (shortId(charUuid) === '2a19' && bytes.length === 1) this.emit('log', `    ↳ battery ${bytes[0]}%`);
     const info = describeSc4Frame(bytes);
     if (info && charUuid.startsWith('50340003')) {
       this.emit('log', `    ↳ ${info.summary}`);
