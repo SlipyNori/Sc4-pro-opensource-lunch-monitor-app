@@ -3,10 +3,13 @@ import type { DeviceProfile } from './frameDecoder';
 /**
  * Profile for the Swing Caddie SC4 Pro.
  *
- * Confirmed from a real unit (advertised name "SC4PRO 0514"):
+ * Confirmed from a real unit (advertised name "SC4PRO 0514", model "904",
+ * firmware "200", hardware "200", manufacturer "VC Inc"):
  *   - Advertised name starts with "SC4PRO"
  *   - Vendor GATT service 50340001-2065-6964-6461-63676e697773
  *     (the trailing bytes are "swingcaddie" in reverse ASCII)
+ *   - In it: 50340002 (write / write-without-response) = command channel,
+ *            50340003 (notify) = data from the device
  *   - Standard Device Information (0x180A) and Battery (0x180F) services
  *   - The unit only advertises after the official app wakes its Bluetooth;
  *     disconnect the phone and it stays discoverable for a while.
@@ -18,13 +21,15 @@ import type { DeviceProfile } from './frameDecoder';
  */
 export const SC4_PRO_PROFILE: DeviceProfile = {
   name: 'Swing Caddie SC4 Pro (capture mode – shot format not yet decoded)',
-  notes: 'Service UUID confirmed. Characteristics and frame layout still to be captured. See docs/PROTOCOL.md.',
+  notes: 'Service and channels confirmed. Start command (if any) and shot frame layout still to be captured. See docs/PROTOCOL.md.',
   namePrefixes: ['SC4PRO', 'SC4'],
   services: [
     '50340001-2065-6964-6461-63676e697773',
     'device_information',
     'battery_service',
   ],
+  shotCharacteristic: '50340003-2065-6964-6461-63676e697773',
+  commandCharacteristic: '50340002-2065-6964-6461-63676e697773',
   fields: {},
   // Ready / not-ready status packets: unknown until captured. Example shape:
   // status: { ready: { prefix: "XX YY" }, notReady: { prefix: "XX ZZ" } }

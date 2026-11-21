@@ -42,6 +42,8 @@ export interface DeviceProfile {
   services: string[];
   /** Characteristic that carries shot frames (if known) */
   shotCharacteristic?: string;
+  /** Characteristic that accepts commands (if known) */
+  commandCharacteristic?: string;
   match?: FrameMatcher;
   fields: Partial<Record<DecodableField, FieldSpec>>;
   /**

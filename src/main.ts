@@ -30,7 +30,10 @@ let gimmeM = 0;
 let mode: 'range' | 'course' = 'range';
 let round: Round | null = null;
 const PROFILE_KEY = 'open-sc4.profile.v1';
-let profile: DeviceProfile = loadJson<DeviceProfile>(PROFILE_KEY, SC4_PRO_PROFILE);
+const savedProfile = loadJson<DeviceProfile | null>(PROFILE_KEY, null);
+// Use the built-in SC4 Pro profile unless the user has customised the decoding,
+// so improvements to the default reach people who saved an older copy.
+let profile: DeviceProfile = savedProfile && Object.keys(savedProfile.fields ?? {}).length ? savedProfile : SC4_PRO_PROFILE;
 
 const sim = new SimulatedDevice();
 const ble = new BluetoothDevice(profile);
@@ -865,6 +868,15 @@ function appendLog(line: string) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 $('#log-clear').addEventListener('click', () => (logEl.textContent = ''));
+$<HTMLFormElement>('#send-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $<HTMLInputElement>('#send-hex');
+  try {
+    await ble.sendHex(input.value);
+  } catch (err) {
+    appendLog(`Couldn't send: ${(err as Error).message}`);
+  }
+});
 $('#log-export').addEventListener('click', () => download(`opensc4-capture-${dateStamp()}.json`, ble.exportCapture(), 'application/json'));
 if (!ble.isSupported()) appendLog('Web Bluetooth not available in this browser – use Chrome or Edge (desktop or Android) on https:// or localhost.');
 

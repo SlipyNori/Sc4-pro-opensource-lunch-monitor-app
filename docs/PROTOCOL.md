@@ -9,10 +9,15 @@ The goal is a verified **device profile** (JSON) that tells the app how to turn 
 | Item | Value | Source |
 |---|---|---|
 | Advertised name | `SC4PRO <4 digits>` (e.g. `SC4PRO 0514`) | Chrome `bluetooth-internals` scan |
+| Device information | model `904`, firmware `200`, hardware `200`, manufacturer `VC Inc` | `0x180A` reads |
+| Battery | `0x2A19` read/notify (one byte, percent) | `0x180F` |
 | Vendor service | `50340001-2065-6964-6461-63676e697773` | same |
-| Standard services | `1800`, `1801`, `180A` (Device Info), `180F` (Battery) | same |
-| Characteristics in the vendor service | *not yet recorded*. Windows `bluetooth-internals` showed "No Characteristics Found" for every service, including the standard ones, so its discovery failed rather than the services being empty. Handle gaps (vendor service at 0x000B, next service at 0x0011) suggest ~2 characteristics, likely one write + one notify. | handle numbers in `bluetooth-internals` |
+| Command channel | `50340002-…` write / write-without-response | OpenSC4 Device log |
+| Data channel | `50340003-…` notify | OpenSC4 Device log |
+| Start command | *unknown: the device may stay silent until the official app sends one* | |
 | Shot frame layout | *not yet decoded* | |
+
+**On Windows:** Chrome's `bluetooth-internals` page showed no characteristics at all, but OpenSC4's own connection (Web Bluetooth with the vendor service requested) lists and subscribes to them fine.
 
 **Waking the device:** the SC4 Pro doesn't advertise on its own. Open the Swing Caddie app so it connects, then turn the phone's Bluetooth **off in Settings**. The SC4 Pro then stays discoverable for a while, long enough to scan and connect from a computer.
 

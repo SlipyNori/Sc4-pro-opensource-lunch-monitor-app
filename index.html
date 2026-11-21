@@ -236,6 +236,11 @@
                 <button id="log-clear">Clear</button>
               </div>
               <pre id="log" class="log"></pre>
+              <form id="send-form" class="row send-row">
+                <input id="send-hex" placeholder="Bytes to send, in hex (e.g. 01 00)" aria-label="Bytes to send to the device" spellcheck="false" />
+                <button type="submit">Send to device</button>
+              </form>
+              <p class="hint">For protocol research: sends raw bytes to the SC4 Pro's command channel. Only send bytes you've seen the official app send; unknown commands could change device settings.</p>
             </div>
           </div>
         </div>

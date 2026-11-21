@@ -1,5 +1,5 @@
 import { BaseAdapter } from './DeviceAdapter';
-import { bytesToHex, decodeFrame, matchStatus, type DeviceProfile } from './frameDecoder';
+import { bytesToHex, decodeFrame, hexToBytes, matchStatus, type DeviceProfile } from './frameDecoder';
 
 /**
  * Web Bluetooth launch-monitor adapter.
@@ -18,6 +18,8 @@ export class BluetoothDevice extends BaseAdapter {
   acceptAllDevices = false;
   private device: BluetoothDevice_ | null = null;
   private chars: BluetoothRemoteGATTCharacteristic[] = [];
+  /** Characteristics we can write commands to */
+  private writable: BluetoothRemoteGATTCharacteristic[] = [];
   /** Captured packets (for export / protocol research) */
   readonly capture: { t: number; char: string; hex: string }[] = [];
 
@@ -105,6 +107,7 @@ export class BluetoothDevice extends BaseAdapter {
             this.emit('log', `    read: ${bytesToHex(v)}  "${printable(v)}"`);
           } catch { /* not readable without auth etc. */ }
         }
+        if (p.write || p.writeWithoutResponse) this.writable.push(ch);
         if (p.notify || p.indicate) {
           try {
             await ch.startNotifications();
@@ -144,9 +147,28 @@ export class BluetoothDevice extends BaseAdapter {
       try { await ch.stopNotifications(); } catch { /* ignore */ }
     }
     this.chars = [];
+    this.writable = [];
     this.device?.gatt?.disconnect();
     this.device = null;
     this.emit('status', 'disconnected');
+  }
+
+  /**
+   * Send raw bytes to the device's command channel (a writable characteristic in
+   * the profile's services; the profile's commandCharacteristic if set).
+   */
+  async sendHex(hex: string): Promise<void> {
+    const bytes = hexToBytes(hex);
+    if (!bytes.length) throw new Error('Type some bytes in hex, e.g. "01 02 0A"');
+    const want = this.profile.commandCharacteristic
+      ? BluetoothUUID.getCharacteristic(normaliseUuid(this.profile.commandCharacteristic))
+      : null;
+    const ch = this.writable.find((c) => (want ? c.uuid === want : true));
+    if (!ch) throw new Error('Not connected, or the device has no command channel');
+    if (ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(bytes);
+    else await ch.writeValue(bytes);
+    this.capture.push({ t: Date.now(), char: `▶${ch.uuid}`, hex: bytesToHex(bytes) });
+    this.emit('log', `▶ ${ch.uuid.slice(4, 8)} ${bytesToHex(bytes)}  (sent)`);
   }
 
   exportCapture(): string {
