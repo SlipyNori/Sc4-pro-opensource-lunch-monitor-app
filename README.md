@@ -22,11 +22,9 @@ An **open-source launch monitor dashboard and golf simulator** for the Swing Cad
 
 ## Status of SC4 Pro Bluetooth support
 
-The SC4 Pro's Bluetooth protocol is **not publicly documented**. This project deliberately **does not ship guessed byte layouts**, because guesses would silently produce wrong numbers. The default SC4 Pro profile runs in **capture mode**: it connects, subscribes to every notifying characteristic, and logs packets that you can download as JSON.
+**Working.** OpenSC4 connects to the SC4 Pro over Bluetooth and reads each shot: club speed, ball speed, carry, total, apex, launch direction, launch angle and spin, plus the club from its loft. Each value has been matched against the device's own screen; see [docs/PROTOCOL.md](docs/PROTOCOL.md) for the protocol (each shot comes as acknowledged 20-byte parts, in SI units).
 
-**This is where you can help.** [docs/PROTOCOL.md](docs/PROTOCOL.md) walks through capturing packets, correlating them with the numbers on the device's screen, and turning the result into a profile. When a profile works, open a PR and every SC4 Pro owner gets live data.
-
-Until then you can still use the app with manual entry or CSV import.
+Still open: spin axis isn't sent (it's estimated), and a few values (≈991.8, 136, ≈20.1) aren't identified yet. Captures from other firmware versions and clubs are welcome.
 
 ## Quick start
 

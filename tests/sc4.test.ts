@@ -101,3 +101,36 @@ describe('SC4 Pro full shot decode', () => {
     expect(s.deviceTotalYd).toBe(17.9);
   });
 });
+
+describe('SC4 Pro: a shot to the left', () => {
+  // Real frames, 2026-11-20 23:30:42. Device screen: carry 12.3 yd · swing 26.1 mph ·
+  // ball 24.2 mph · launch direction -8.9° (left arrow) · apex 6.9 ft
+  const frames = [
+    '53 73 00 00 01 1A 0B 14 17 1E 2A 00 14 00 00 60 42 00 45 A6',
+    '53 73 00 00 02 B8 EE 77 44 33 33 03 42 FF D9 2C 41 00 45 A2',
+    '53 73 00 00 03 4B 87 3A 41 00 00 08 43 7D 7C 33 41 00 45 ED',
+    '53 73 00 00 04 7E 37 40 41 94 64 06 40 00 F0 50 45 00 45 F8',
+    '53 73 00 00 05 D1 C3 0D C1 77 E9 A0 41 D2 00 4C 00 00 45 2F',
+    '53 73 00 00 06 0C 0D 81 00 C8 00 00 00 00 00 00 00 00 45 8D',
+  ];
+
+  it('decodes straight from the raw frames to the screen numbers, left as negative', () => {
+    const parts = frames.map((f) => {
+      const d = describeSc4Frame(hexToBytes(f))!;
+      expect(d.checksumOk).toBe(true);
+      return { part: d.part!, values: d.values, loft: d.loftDeg, club: d.clubCode, time: d.time };
+    });
+    const s = sc4ShotFromParts(parts)!;
+    expect(s).toMatchObject({
+      ballSpeedMph: 24.2,
+      clubSpeedMph: 26.1,
+      deviceCarryYd: 12.3,
+      deviceApexFt: 6.9,
+      launchDirectionDeg: -8.9,
+      launchAngleDeg: 32.8,
+      spinRpm: 3343,
+      deviceTotalYd: 13.1,
+      clubHint: 'SW',
+    });
+  });
+});

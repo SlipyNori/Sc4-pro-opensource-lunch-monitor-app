@@ -242,7 +242,15 @@ export class BluetoothDevice extends BaseAdapter {
     if (values.length) this.emit('log', `★ Values · ${values.join(' | ')}`);
     const shot = sc4ShotFromParts(parts);
     if (shot) {
-      this.emit('log', `★ Shot sent to the app · ball ${shot.ballSpeedMph} mph${shot.clubHint ? ` · club ${shot.clubHint}` : ''} (other numbers estimated until decoded)`);
+      const bits = [
+        `ball ${shot.ballSpeedMph} mph`,
+        shot.clubSpeedMph !== undefined && `club ${shot.clubSpeedMph} mph`,
+        shot.deviceCarryYd !== undefined && `carry ${shot.deviceCarryYd} yd`,
+        shot.launchDirectionDeg !== undefined && `direction ${Math.abs(shot.launchDirectionDeg)}°${shot.launchDirectionDeg < 0 ? 'L' : shot.launchDirectionDeg > 0 ? 'R' : ''}`,
+        shot.deviceApexFt !== undefined && `apex ${shot.deviceApexFt} ft`,
+        shot.clubHint && `club ${shot.clubHint}`,
+      ].filter(Boolean);
+      this.emit('log', `★ Shot sent to the app · ${bits.join(' · ')}`);
       this.emit('shot', shot);
     }
     this.shotParts = [];

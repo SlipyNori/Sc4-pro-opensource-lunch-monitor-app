@@ -71,7 +71,7 @@ p2: 991.76, 33.8, 12.719 | p3: 13.698, 136, 15.44 | p4: 16.344, 2.936, 4066 | p5
 | p4 · 1 | 16.344 | **total, m** (device estimate) | = 17.9 yd, a little past carry |
 | p4 · 2 | 2.936 | **apex, m** | = 9.6 ft ✓ |
 | p4 · 3 | 4066 | **spin, rpm** | plausible for a wedge; screen showed "--" |
-| p5 · 1 | 4.945 | **launch direction, °** (+ = right) | = 4.9° R ✓ (sign for left shots still to confirm) |
+| p5 · 1 | 4.945 | **launch direction, °** (+ = right, − = left) | = 4.9° R ✓; −8.86 = 8.9° L ✓ on a later shot |
 | p5 · 2 | 20.113 | unknown: air temperature in °C? | |
 | p5 · 3, p6 | 0 | unused / not measured | |
 
