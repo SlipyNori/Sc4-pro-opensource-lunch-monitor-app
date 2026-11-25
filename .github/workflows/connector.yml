@@ -5,6 +5,8 @@ name: Connector (Windows)
 # "connector-v1.0.0" also attaches it to a GitHub release.
 on:
   push:
+    # Without a branch filter, a tag filter alone stops branch pushes from running it
+    branches: ['**']
     paths:
       - 'connector/**'
       - '.github/workflows/connector.yml'
