@@ -19,6 +19,8 @@ import { buildFeatureImagery, buildImagery, type HoleImagery } from './course/sa
 import { practiceCourse } from './course/practiceCourse';
 import { plantTrees } from './course/treePlanting';
 import { Forest } from './render/trees';
+import { ConnectorClient } from './connector/client';
+import type { TargetConfig } from '../connector/src/protocol';
 import { Minimap } from './course/Minimap';
 import { msToMph } from './physics/units';
 
@@ -122,6 +124,8 @@ function renderLamp() {
       : 'Ready signal not decoded yet – watch the device screen';
   }
   lamp.dataset.state = state;
+  // Simulators show whether the launch monitor is armed and a ball is set
+  sims?.setStatus(status === 'connected', camera?.running ? camera.state === 'ready' : status === 'connected');
   $('#ready-title').textContent = title;
   $('#ready-detail').textContent = detail;
 }
@@ -150,6 +154,7 @@ function addShot(m: ShotMeasurement, source: string) {
   const { shot, flight } = processShot(m, club, source, env);
   shots.push(shot);
   saveShots(shots);
+  forwardToSimulators(shot, m, source);
   if (mode === 'course' && round && !round.holed) {
     playCourseShot(m);
   } else if (mode === 'course' && round?.holed) {
@@ -850,6 +855,127 @@ function renderScorecard() {
 }
 
 window.addEventListener('resize', () => round && mode === 'course' && minimap.draw(round, imageryForHole, club));
+
+// ---------- Simulators (GSPro, Infinite Tees, …) via the OpenSC4 Connector ----------
+const SIMS_KEY = 'open-sc4.sims.v1';
+const simsSaved = loadJson<{ on: boolean; targets: TargetConfig[]; manual: boolean; sim: boolean; club: boolean } | null>(SIMS_KEY, null);
+const simTargets: TargetConfig[] = simsSaved?.targets ?? [
+  { name: 'GSPro', host: '127.0.0.1', port: 921, enabled: true },
+  { name: 'Infinite Tees', host: '127.0.0.1', port: 0, enabled: false },
+];
+const sims: ConnectorClient = new ConnectorClient(simTargets);
+const simsOn = $<HTMLInputElement>('#sims-on');
+const simsManual = $<HTMLInputElement>('#sims-src-manual');
+const simsSim = $<HTMLInputElement>('#sims-src-sim');
+const simsClub = $<HTMLInputElement>('#sims-club');
+simsOn.checked = !!simsSaved?.on;
+simsManual.checked = !!simsSaved?.manual;
+simsSim.checked = !!simsSaved?.sim;
+simsClub.checked = simsSaved?.club ?? true;
+const simsMsg = (t: string) => ($('#sims-msg').textContent = t);
+const saveSims = () => saveJson(SIMS_KEY, { on: simsOn.checked, targets: sims.targets, manual: simsManual.checked, sim: simsSim.checked, club: simsClub.checked });
+
+function renderSimStatus() {
+  const el = $('#sims-status');
+  const text: Record<string, string> = {
+    off: 'Off. Switch on to send shots to your simulators.',
+    connecting: 'Looking for the OpenSC4 Connector on this PC…',
+    unreachable: 'Connector not found. Start the OpenSC4 Connector on this PC (it keeps trying every few seconds). If your browser asks to allow access to devices on your local network, choose Allow.',
+    connected: `<span class="ok">Connector running</span>${sims.version ? ` (v${sims.version})` : ''}`,
+  };
+  el.innerHTML = text[sims.state];
+  renderSimTargets();
+}
+
+function renderSimTargets() {
+  const rows = sims.targets.map((t, i) => {
+    const out = sims.outputs.find((o) => o.name === t.name);
+    const st = !t.enabled ? 'Off' : sims.state !== 'connected' ? '–' : !t.port ? 'Enter the port' : out?.connected ? `<span class="ok">Connected</span> · ${out.shotsSent} shot${out.shotsSent === 1 ? "" : "s"}` : `<span class="bad">Waiting for ${escapeHtml(t.name)}</span>${out?.error ? ` (${escapeHtml(out.error)})` : ''}`;
+    return `<tr data-i="${i}">
+      <td><input type="checkbox" data-f="enabled" ${t.enabled ? 'checked' : ''} aria-label="Send to ${escapeHtml(t.name)}" /></td>
+      <td><input type="text" data-f="name" value="${escapeHtml(t.name)}" aria-label="Name" /></td>
+      <td><input type="text" data-f="host" value="${escapeHtml(t.host)}" aria-label="Address" /></td>
+      <td><input type="number" data-f="port" value="${t.port || ''}" min="1" max="65535" placeholder="port" aria-label="Port" /></td>
+      <td>${st}</td>
+      <td>${i > 0 ? '<button type="button" data-remove>Remove</button>' : ''}</td></tr>`;
+  });
+  $('#sims-targets').innerHTML = `<thead><tr><th>On</th><th>Simulator</th><th>Address</th><th>Port</th><th>Status</th><th></th></tr></thead><tbody>${rows.join('')}</tbody>`;
+}
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+$('#sims-targets').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const row = input.closest('tr[data-i]');
+  if (!row) return;
+  const t = sims.targets[Number(row.getAttribute('data-i'))];
+  const f = input.dataset.f as keyof TargetConfig;
+  if (f === 'enabled') t.enabled = input.checked;
+  else if (f === 'port') t.port = Math.max(0, Math.min(65535, Number(input.value) || 0));
+  else if (f === 'name' || f === 'host') t[f] = input.value.trim() || (f === 'host' ? '127.0.0.1' : 'Simulator');
+  sims.configure(sims.targets);
+  saveSims();
+  renderSimTargets();
+});
+$('#sims-targets').addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('[data-remove]');
+  const row = btn?.closest('tr[data-i]');
+  if (!row) return;
+  sims.targets.splice(Number(row.getAttribute('data-i')), 1);
+  sims.configure(sims.targets);
+  saveSims();
+  renderSimTargets();
+});
+$('#sims-add').addEventListener('click', () => {
+  sims.targets.push({ name: `Simulator ${sims.targets.length + 1}`, host: '127.0.0.1', port: 0, enabled: true });
+  sims.configure(sims.targets);
+  saveSims();
+  renderSimTargets();
+});
+simsOn.addEventListener('change', () => {
+  sims.setEnabled(simsOn.checked);
+  saveSims();
+});
+[simsManual, simsSim, simsClub].forEach((el) => el.addEventListener('change', saveSims));
+$('#sims-test').addEventListener('click', () => {
+  if (sims.state !== 'connected') return simsMsg('Start the connector and switch it on first.');
+  sims.sendShot(`test-${Date.now()}`, { ballSpeedMph: 120, clubSpeedMph: 90, launchAngleDeg: 16.5, launchDirectionDeg: 0, spinRpm: 6800, spinAxisDeg: 0, club: '7i' });
+  simsMsg('Test shot sent: a 7-iron, 120 mph ball speed.');
+});
+
+sims.onChange = renderSimStatus;
+sims.onClub = (c, source) => {
+  if (!simsClub.checked || !(CLUBS as readonly string[]).includes(c)) return;
+  if (c !== club) {
+    setClub(c as ClubId);
+    appendLog(`⛳ ${source} selected ${c}; club switched to match`);
+  }
+};
+sims.onResult = (output, ok, message) => {
+  simsMsg(ok ? `${output} received the shot ✓` : `${output} didn't take the shot: ${message ?? 'unknown error'}`);
+  appendLog(`${ok ? '✓' : '!'} ${output}: ${message ?? (ok ? 'shot received' : 'error')}`);
+};
+
+function forwardToSimulators(shot: Shot, m: ShotMeasurement, source: string) {
+  if (!simsOn.checked) return;
+  const send = source === 'SC4 Pro' || source === 'Camera putt'
+    || (source === 'Manual' && simsManual.checked)
+    || (source.startsWith('Simulator') && simsSim.checked);
+  if (!send) return;
+  const ok = sims.sendShot(shot.id, {
+    ballSpeedMph: shot.ballSpeedMph,
+    clubSpeedMph: shot.clubSpeedMph,
+    launchAngleDeg: shot.launchAngleDeg,
+    launchDirectionDeg: shot.launchDirectionDeg,
+    spinRpm: shot.spinRpm,
+    spinAxisDeg: shot.spinAxisDeg,
+    carryYd: m.deviceCarryYd,
+    club: shot.club,
+  });
+  if (!ok) simsMsg('Shot not sent: the connector isn\'t running.');
+}
+
+sims.setEnabled(simsOn.checked);
+renderSimStatus();
 
 // ---------- Device / protocol tab ----------
 const profileJson = $<HTMLTextAreaElement>('#profile-json');

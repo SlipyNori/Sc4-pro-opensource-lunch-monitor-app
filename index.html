@@ -105,6 +105,7 @@
           <button data-tab="stats">Club stats</button>
           <button data-tab="manual">Manual entry</button>
           <button data-tab="course">Course</button>
+          <button data-tab="sims">Simulators</button>
           <button data-tab="camera">Camera</button>
           <button data-tab="device">Device / protocol</button>
           <button data-tab="settings">Conditions</button>
@@ -160,6 +161,37 @@
             shows no holes, it hasn't been mapped yet, and anyone can add it at openstreetmap.org. Courses are played flat (no slopes).
           </p>
           <p class="hint">Imagery © Esri, Maxar, Earthstar Geographics · Course data © OpenStreetMap contributors (ODbL)</p>
+        </div>
+
+        <div class="tab-panel" data-panel="sims">
+          <p class="hint">
+            Play GSPro, Infinite Tees or another simulator with your SC4 Pro. This app reads the SC4 Pro over Bluetooth;
+            the <strong>OpenSC4 Connector</strong>, a small program running on the same PC, passes each shot to the simulator.
+          </p>
+          <ol class="steps">
+            <li>Download and run the connector on the PC that runs your simulator: <a id="connector-download" href="https://github.com/SlipyNori/Sc4-pro-opensource-lunch-monitor-app/releases" target="_blank" rel="noopener">OpenSC4 Connector for Windows</a>.</li>
+            <li>In GSPro, choose the Open API / "GSPro Connect" launch monitor option. For Infinite Tees, use its third-party connector option and enter its address below.</li>
+            <li>Switch the connector on here, then connect your SC4 Pro as usual (Bluetooth).</li>
+          </ol>
+          <label class="check big-check"><input id="sims-on" type="checkbox" /> Send my shots to golf simulators</label>
+          <div class="sim-status" id="sims-status" role="status">Connector off</div>
+          <table class="sim-targets" id="sims-targets"></table>
+          <div class="row">
+            <button id="sims-add" type="button">Add another simulator</button>
+            <button id="sims-test" type="button">Send a test shot</button>
+            <span id="sims-msg" class="msg" role="status"></span>
+          </div>
+          <fieldset class="putt-set">
+            <legend>Which shots to send</legend>
+            <label class="check"><input id="sims-src-sc4" type="checkbox" checked disabled /> SC4 Pro shots (always)</label>
+            <label class="check"><input id="sims-src-manual" type="checkbox" /> Shots I type in (Manual entry)</label>
+            <label class="check"><input id="sims-src-sim" type="checkbox" /> Simulator shots (for testing without hardware)</label>
+            <label class="check"><input id="sims-club" type="checkbox" checked /> Follow the club selected in the simulator</label>
+          </fieldset>
+          <p class="hint">
+            Shots use the GSPro Open Connect format (port 921). Infinite Tees publishes its connector details on its Discord;
+            if it accepts this format, enter its port above. Spin axis isn't sent by the SC4 Pro, so shots are sent with no curve.
+          </p>
         </div>
 
         <div class="tab-panel" data-panel="camera">

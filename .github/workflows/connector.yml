@@ -1,0 +1,57 @@
+name: Connector (Windows)
+
+# Builds the OpenSC4 Connector as a single Windows .exe (Node single executable
+# application). Every run uploads it as a workflow artifact; pushing a tag like
+# "connector-v1.0.0" also attaches it to a GitHub release.
+on:
+  push:
+    paths:
+      - 'connector/**'
+      - '.github/workflows/connector.yml'
+    tags:
+      - 'connector-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run connector:build
+      - name: Build single executable
+        shell: bash
+        run: |
+          echo '{ "main": "connector/dist/opensc4-connector.cjs", "output": "sea-prep.blob", "disableExperimentalSEAWarning": true }' > sea-config.json
+          node --experimental-sea-config sea-config.json
+          cp "$(command -v node)" opensc4-connector.exe
+          npx --yes postject@1.0.0-alpha.6 opensc4-connector.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+      - name: Smoke test
+        shell: bash
+        run: |
+          ./opensc4-connector.exe --port 8799 > run.log 2>&1 &
+          sleep 3
+          cat run.log
+          grep -q "OpenSC4 Connector" run.log
+          taskkill //F //IM opensc4-connector.exe || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensc4-connector-windows
+          path: opensc4-connector.exe
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/connector-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpenSC4 Connector ${{ github.ref_name }}
+          files: opensc4-connector.exe
+          body: |
+            Sends Swing Caddie SC4 Pro shots from the OpenSC4 app to GSPro and other simulators that accept the GSPro Open Connect format.
+            Download opensc4-connector.exe, run it, then switch on "Send my shots to golf simulators" in the app's Simulators tab.
+            See docs/CONNECTOR.md for setup.

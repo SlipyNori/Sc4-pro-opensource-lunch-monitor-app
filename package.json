@@ -13,17 +13,23 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "calibrate": "vite-node scripts/calibrate.ts"
+    "calibrate": "vite-node scripts/calibrate.ts",
+    "connector:build": "esbuild connector/src/main.ts --bundle --platform=node --target=node22 --format=cjs --outfile=connector/dist/opensc4-connector.cjs",
+    "connector": "npm run connector:build && node connector/dist/opensc4-connector.cjs"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
     "three": "0.169.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "@types/three": "0.169.0",
     "@types/web-bluetooth": "0.0.20",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.24.0",
     "typescript": "5.6.3",
     "vite": "5.4.11",
-    "vitest": "2.1.8"
+    "vitest": "2.1.8",
+    "ws": "^8.18.0"
   }
 }
